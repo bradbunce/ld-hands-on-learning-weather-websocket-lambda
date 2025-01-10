@@ -1,0 +1,50 @@
+name: Deploy Lambda
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          
+      - name: Install Dependencies
+        run: npm ci
+        
+      - name: Create deployment package
+        run: |
+          rm -rf node_modules/
+          npm install --production
+          zip -r deployment.zip . -x "*.env*" "*node_modules/*" "*.git*" "*local-test.js*" "*.github/*"
+          zip -r deployment.zip node_modules/
+          
+      - name: Deploy to Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name brad-weather-app-weather-websocket \
+            --zip-file fileb://deployment.zip
+            
+      - name: Verify deployment
+        run: |
+          aws lambda wait function-updated --function-name brad-weather-app-weather-websocket 
+          FUNCTION_STATE=$(aws lambda get-function --function-name brad-weather-app-weather-websocket --query 'Configuration.State' --output text)
+          if [ "$FUNCTION_STATE" != "Active" ]; then
+            echo "Function not active after deployment"
+            exit 1
+          fi

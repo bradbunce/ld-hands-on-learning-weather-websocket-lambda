@@ -1,0 +1,12 @@
+{
+    "FunctionName": "weather-websocket-lambda",
+    "Runtime": "nodejs20.x",
+    "Handler": "index.handler",
+    "MemorySize": 256,
+    "Timeout": 30,
+    "Environment": {
+        "Variables": {
+            "NODE_OPTIONS": "--enable-source-maps"
+        }
+    }
+}
