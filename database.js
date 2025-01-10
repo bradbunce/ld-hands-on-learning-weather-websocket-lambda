@@ -1,4 +1,5 @@
 const mysql = require('mysql2/promise');
+const queries = require('./queries');
 
 const dbConfig = {
     primary: {
