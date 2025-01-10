@@ -1,3 +1,5 @@
+// index.js
+
 const { storeConnection, removeConnection, getActiveConnections } = require('./websocket');
 const { processWeatherData } = require('./dataProcessor');
 const { getWeatherUpdates } = require('./weatherAPI');
