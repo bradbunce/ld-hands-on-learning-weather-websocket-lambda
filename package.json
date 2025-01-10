@@ -1,5 +1,5 @@
 {
-  "name": "weather-websocket-lambda",
+  "name": "brad-weather-app-weather-websocket",
   "version": "1.0.0",
   "description": "WebSocket Lambda for weather updates",
   "main": "index.js",

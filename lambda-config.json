@@ -1,5 +1,5 @@
 {
-    "FunctionName": "weather-websocket-lambda",
+    "FunctionName": "brad-weather-app-weather-websocket",
     "Runtime": "nodejs20.x",
     "Handler": "index.handler",
     "MemorySize": 256,
