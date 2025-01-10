@@ -1,0 +1,19 @@
+{
+    "FunctionName": "weather-websocket-lambda",
+    "Environment": {
+        "Variables": {
+            "DB_PRIMARY_HOST": "",
+            "DB_REPLICA_HOST": "",
+            "DB_USER": "",
+            "DB_PASSWORD": "",
+            "DB_PRIMARY_NAME": "",
+            "DB_READ_REPLICA_NAME": "",
+            "WEATHER_API_KEY": "",
+            "WEBSOCKET_API_ENDPOINT": ""
+        }
+    },
+    "MemorySize": 128,
+    "Timeout": 30,
+    "Runtime": "nodejs20.x",
+    "Handler": "index.handler"
+}
