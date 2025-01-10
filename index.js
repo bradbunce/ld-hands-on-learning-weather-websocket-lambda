@@ -1,6 +1,6 @@
 // index.js
 
-const { storeConnection, removeConnection, getActiveConnections } = require('./websocket');
+const { storeConnection, removeConnection, getActiveConnections, sendMessageToClient } = require('./websocket');
 const { processWeatherData } = require('./dataProcessor');
 const { getWeatherUpdates } = require('./weatherAPI');
 const { getLocationsForUser } = require('./database');
@@ -27,8 +27,23 @@ exports.handler = async (event) => {
                 const body = JSON.parse(event.body);
                 const userId = body.userId;
                 
+                if (!userId) {
+                    console.error('Missing userId in request body');
+                    return { statusCode: 400, body: 'userId is required' };
+                }
+
+                console.log('Fetching locations for user:', userId);
+                console.log('Environment check:', {
+                    dbPrimaryHost: process.env.DB_PRIMARY_HOST ? 'Set' : 'Not set',
+                    dbReplicaHost: process.env.DB_REPLICA_HOST ? 'Set' : 'Not set',
+                    dbUser: process.env.DB_USER ? 'Set' : 'Not set',
+                    dbPrimaryName: process.env.DB_PRIMARY_NAME ? 'Set' : 'Not set',
+                    dbReplicaName: process.env.DB_READ_REPLICA_NAME ? 'Set' : 'Not set'
+                });
+                
                 // Get user's saved locations
                 const locations = await getLocationsForUser(userId);
+                console.log('Retrieved locations:', locations);
                 
                 // Get weather data for all locations
                 const weatherData = await getWeatherUpdates(locations);

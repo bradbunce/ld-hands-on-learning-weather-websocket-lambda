@@ -18,16 +18,41 @@ const dbConfig = {
 
 const createConnection = async (operation = 'read') => {
     const config = operation === 'read' ? dbConfig.replica : dbConfig.primary;
-    return await mysql.createConnection(config);
+    try {
+        const connection = await mysql.createConnection(config);
+        // Test the connection and ensure database is selected
+        await connection.query('SELECT 1');
+        return connection;
+    } catch (error) {
+        console.error('Database connection error:', {
+            error: error.message,
+            code: error.code,
+            config: {
+                host: config.host,
+                user: config.user,
+                database: config.database
+            }
+        });
+        throw error;
+    }
 };
 
 const getLocationsForUser = async (userId) => {
-    const connection = await createConnection('read');
+    let connection;
     try {
+        connection = await createConnection('read');
         const [rows] = await connection.execute(queries.getUserLocations, [userId]);
         return rows;
+    } catch (error) {
+        console.error('Error getting user locations:', {
+            error: error.message,
+            userId
+        });
+        throw error;
     } finally {
-        await connection.end();
+        if (connection) {
+            await connection.end();
+        }
     }
 };
 
