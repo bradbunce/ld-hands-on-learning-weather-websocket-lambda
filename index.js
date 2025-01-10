@@ -35,7 +35,7 @@ exports.handler = async (event) => {
                 console.log('Fetching locations for user:', userId);
                 console.log('Environment check:', {
                     dbPrimaryHost: process.env.DB_PRIMARY_HOST ? 'Set' : 'Not set',
-                    dbReplicaHost: process.env.DB_REPLICA_HOST ? 'Set' : 'Not set',
+                    dbReplicaHost: process.env.DB_READ_REPLICA_HOST ? 'Set' : 'Not set',
                     dbUser: process.env.DB_USER ? 'Set' : 'Not set',
                     dbPrimaryName: process.env.DB_PRIMARY_NAME ? 'Set' : 'Not set',
                     dbReplicaName: process.env.DB_READ_REPLICA_NAME ? 'Set' : 'Not set'
