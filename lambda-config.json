@@ -3,7 +3,7 @@
     "Environment": {
         "Variables": {
             "DB_PRIMARY_HOST": "",
-            "DB_REPLICA_HOST": "",
+            "DB_READ_REPLICA_HOST": "",
             "DB_USER": "",
             "DB_PASSWORD": "",
             "DB_NAME": "",
