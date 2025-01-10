@@ -1,7 +1,7 @@
 const AWS = require('aws-sdk');
 const dynamoDB = new AWS.DynamoDB.DocumentClient();
 
-const CONNECTIONS_TABLE = 'weather-app-websocket-connections';
+const CONNECTIONS_TABLE = 'brad-weather-app-websocket-connections';
 const ENDPOINT = process.env.WEBSOCKET_API_ENDPOINT;
 
 if (!ENDPOINT) {
