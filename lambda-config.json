@@ -1,5 +1,5 @@
 {
-    "FunctionName": "weather-websocket-lambda",
+    "FunctionName": "brad-weather-app-weather-websocket",
     "Environment": {
         "Variables": {
             "DB_PRIMARY_HOST": "",
