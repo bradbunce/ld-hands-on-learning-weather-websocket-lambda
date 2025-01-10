@@ -6,13 +6,13 @@ const dbConfig = {
         host: process.env.DB_PRIMARY_HOST,
         user: process.env.DB_USER,
         password: process.env.DB_PASSWORD,
-        database: process.env.DB_PRIMARY_NAME
+        database: process.env.DB_NAME
     },
     replica: {
         host: process.env.DB_REPLICA_HOST,
         user: process.env.DB_USER,
         password: process.env.DB_PASSWORD,
-        database: process.env.DB_READ_REPLICA_NAME
+        database: process.env.DB_NAME
     }
 };
 
