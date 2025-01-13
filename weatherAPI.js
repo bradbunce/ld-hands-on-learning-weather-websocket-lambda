@@ -119,6 +119,9 @@ const getWeatherForLocation = async (location) => {
 };
 
 const getWeatherUpdates = async (locations) => {
+    // Detailed logging of input locations
+    console.log('Locations before processing:', JSON.stringify(locations, null, 2));
+
     if (!Array.isArray(locations) || locations.length === 0) {
         console.warn('No locations provided for weather updates');
         return [];
@@ -129,11 +132,18 @@ const getWeatherUpdates = async (locations) => {
     // Add overall timeout for all weather updates
     const weatherPromises = locations.map(location => 
         getWeatherForLocation(location)
-            .catch(error => ({
-                locationName: location.name || getLocationQuery(location),
-                error: error.message,
-                timestamp: new Date().toISOString()
-            }))
+            .catch(error => {
+                console.error('Weather fetch error for location:', {
+                    location,
+                    errorMessage: error.message,
+                    errorStack: error.stack
+                });
+                return {
+                    locationName: location.name || getLocationQuery(location),
+                    error: error.message,
+                    timestamp: new Date().toISOString()
+                };
+            })
     );
 
     // Race between all weather updates and a global timeout
@@ -143,6 +153,9 @@ const getWeatherUpdates = async (locations) => {
             setTimeout(() => reject(new Error('Weather updates global timeout')), 20000)
         )
     ]);
+
+    // Detailed logging of results
+    console.log('Weather updates results:', JSON.stringify(results, null, 2));
 
     // Log any errors that occurred
     results.forEach(result => {
