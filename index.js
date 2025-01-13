@@ -284,15 +284,93 @@ exports.handler = async (event) => {
                     }
                 }
 
-            // Similar detailed logging can be added to subscribe and unsubscribe routes...
-
-            default:
-                logWithTiming('Unknown route');
-                return { 
-                    statusCode: 400, 
-                    body: JSON.stringify({ message: 'Unknown route' }) 
-                };
-        }
+                case '$default': {
+                    logWithTiming('Processing $default route');
+                    
+                    try {
+                        const messageData = JSON.parse(event.body);
+                        logWithTiming('Received message data', { action: messageData.action });
+            
+                        switch (messageData.action) {
+                            case 'subscribe': {
+                                const { token, locationName, countryCode } = messageData;
+                                
+                                logWithTiming('Processing subscription request', { 
+                                    locationName, 
+                                    countryCode 
+                                });
+            
+                                // Verify token
+                                const decoded = verifyToken(token);
+                                
+                                // Update connection with location
+                                await updateConnectionLocation(connectionId, locationName);
+                                
+                                // Get weather for the location
+                                const locations = [{
+                                    city_name: locationName,
+                                    country_code: countryCode
+                                }];
+                                
+                                const weatherData = await getWeatherUpdates(locations);
+                                const processedData = await processWeatherData(weatherData);
+                                
+                                // Send weather data back to client
+                                await sendMessageToClient(connectionId, {
+                                    type: 'weatherUpdate',
+                                    data: processedData,
+                                    timestamp: new Date().toISOString()
+                                });
+            
+                                logWithTiming('Subscription processed successfully', { 
+                                    locationName 
+                                });
+            
+                                return { 
+                                    statusCode: 200, 
+                                    body: JSON.stringify({ message: 'Subscribed successfully' }) 
+                                };
+                            }
+            
+                            case 'unsubscribe': {
+                                const { locationName } = messageData;
+                                logWithTiming('Processing unsubscribe request', { locationName });
+                                
+                                // Remove location from connection
+                                await updateConnectionLocation(connectionId, null);
+                                
+                                return { 
+                                    statusCode: 200, 
+                                    body: JSON.stringify({ message: 'Unsubscribed successfully' }) 
+                                };
+                            }
+            
+                            default:
+                                logWithTiming('Unknown action', { action: messageData.action });
+                                return { 
+                                    statusCode: 400, 
+                                    body: JSON.stringify({ message: 'Unknown action' }) 
+                                };
+                        }
+                    } catch (error) {
+                        logWithTiming('Error processing $default route', {
+                            error: error.message,
+                            stack: error.stack
+                        });
+                        return { 
+                            statusCode: 500, 
+                            body: JSON.stringify({ message: 'Internal server error' }) 
+                        };
+                    }
+                }
+            
+                default:
+                    logWithTiming('Unknown route');
+                    return { 
+                        statusCode: 400, 
+                        body: JSON.stringify({ message: 'Unknown route' }) 
+                    };
+            }
     } catch (error) {
         logWithTiming('Unexpected Global Error', {
             name: error.name,
