@@ -1,83 +1,92 @@
 const processWeatherData = async (weatherData) => {
-  console.log(
-    "Weather data received for processing:",
-    JSON.stringify(weatherData, null, 2)
-  );
-  if (!Array.isArray(weatherData)) {
-    console.error("Weather data must be an array");
-    throw new Error("Invalid weather data format");
-  }
+    console.log(
+        "Weather data received for processing:",
+        JSON.stringify(weatherData, null, 2)
+    );
 
-  try {
-    return weatherData.map((location) => {
-      // Handle error cases where the location fetch failed
-      if (location.error) {
-        return {
-          id: location.locationId,
-          name: location.locationName,
-          error: location.error,
-          timestamp: location.timestamp,
-        };
-      }
+    if (!Array.isArray(weatherData)) {
+        console.error("Weather data must be an array");
+        throw new Error("Invalid weather data format");
+    }
 
-      try {
-        // Check if we're dealing with raw API data or our cached format
-        const current = location.current || location.weather;
-        const locationName = location.name || location.locationName;
+    try {
+        return weatherData.map((location) => {
+            // Handle error cases where the location fetch failed
+            if (location.error) {
+                return {
+                    id: location.locationId,
+                    name: location.locationName,
+                    error: location.error,
+                    timestamp: location.timestamp,
+                };
+            }
 
-        if (!current) {
-          throw new Error("No weather data available");
-        }
-
-        return {
-          id: location.id || location.locationId,
-          name: locationName,
-          weather: {
-            temperature: current.temp_c || current.temperature,
-            condition: current.condition?.text || current.condition,
-            icon: current.condition?.icon || current.icon,
-            humidity: current.humidity,
-            windSpeed: current.wind_kph || current.windSpeed,
-            feelsLike: current.feelslike_c || current.feelsLike,
-            lastUpdated:
-              current.last_updated ||
-              location.timestamp ||
-              new Date().toISOString(),
-          },
-          coordinates:
-            location.latitude && location.longitude
-              ? {
-                  latitude: location.latitude,
-                  longitude: location.longitude,
+            try {
+                // If data is already processed (comes from our API wrapper)
+                if (location.temperature !== undefined) {
+                    return {
+                        id: location.locationId,
+                        name: location.locationName,
+                        weather: {
+                            temperature: location.temperature,
+                            condition: location.condition,
+                            humidity: location.humidity,
+                            windSpeed: location.windSpeed,
+                            feelsLike: location.feelsLike,
+                            lastUpdated: location.timestamp
+                        }
+                    };
                 }
-              : undefined,
-          metadata: {
-            country: location.country || location.country_code,
-            timezone: location.timezone,
-            localTime: location.localtime,
-            cached: !!location.cached,
-            provider: "WeatherAPI.com",
-          },
-        };
-      } catch (locationError) {
-        console.error("Error processing individual location:", {
-          location: location.name || location.locationName,
-          error: locationError.message,
-        });
+                
+                // If raw API data
+                if (location.current) {
+                    return {
+                        id: location.id || location.locationId,
+                        name: location.name || location.locationName,
+                        weather: {
+                            temperature: location.current.temp_c,
+                            condition: location.current.condition?.text,
+                            icon: location.current.condition?.icon,
+                            humidity: location.current.humidity,
+                            windSpeed: location.current.wind_kph,
+                            feelsLike: location.current.feelslike_c,
+                            lastUpdated: location.current.last_updated
+                        },
+                        coordinates: location.latitude && location.longitude
+                            ? {
+                                latitude: location.latitude,
+                                longitude: location.longitude,
+                            }
+                            : undefined,
+                        metadata: {
+                            country: location.country || location.country_code,
+                            timezone: location.timezone,
+                            localTime: location.localtime,
+                            provider: "WeatherAPI.com",
+                        }
+                    };
+                }
 
-        // Return error state for this location
-        return {
-          id: location.id || location.locationId,
-          name: location.name || location.locationName,
-          error: "Failed to process weather data",
-          timestamp: new Date().toISOString(),
-        };
-      }
-    });
-  } catch (error) {
-    console.error("Error processing weather data:", error);
-    throw new Error("Failed to process weather data: " + error.message);
-  }
+                throw new Error("No weather data available");
+            } catch (locationError) {
+                console.error("Error processing individual location:", {
+                    location: location.name || location.locationName,
+                    error: locationError.message,
+                });
+
+                // Return error state for this location
+                return {
+                    id: location.locationId,
+                    name: location.locationName,
+                    error: "Failed to process weather data",
+                    timestamp: new Date().toISOString(),
+                };
+            }
+        });
+    } catch (error) {
+        console.error("Error processing weather data:", error);
+        throw new Error("Failed to process weather data: " + error.message);
+    }
 };
 
 // Validate individual weather data fields
