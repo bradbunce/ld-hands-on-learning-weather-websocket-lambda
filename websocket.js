@@ -49,19 +49,42 @@ const storeConnection = async (connectionId, clientId) => {
     console.log('Attempting to store connection:', {
         connectionId,
         clientId,
+        serviceType: SERVICE_TYPE,
         table: CONNECTIONS_TABLE,
         timestamp: new Date().toISOString()
     });
 
     try {
+        // First try to get existing connection to see if it exists
+        const existingConnection = await retryOperation(
+            () => dynamoDB.get({
+                TableName: CONNECTIONS_TABLE,
+                Key: {
+                    connectionID: connectionId
+                }
+            }).promise(),
+            2,  // fewer retries for check
+            5000 // shorter timeout for check
+        );
+
+        // Log the existing connection if found
+        if (existingConnection.Item) {
+            console.log('Found existing connection:', {
+                connectionId,
+                existingData: existingConnection.Item,
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        // Store the connection
         await retryOperation(
             () => dynamoDB.put({
                 TableName: CONNECTIONS_TABLE,
                 Item: {
-                    connectionID: connectionId,  // Changed to match DynamoDB schema
-                    serviceType: SERVICE_TYPE,
+                    connectionID: connectionId,
                     clientId: clientId,
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+                    serviceType: SERVICE_TYPE
                 }
             }).promise(),
             3,  // max retries
@@ -99,8 +122,7 @@ const removeConnection = async (connectionId) => {
             () => dynamoDB.delete({
                 TableName: CONNECTIONS_TABLE,
                 Key: { 
-                    connectionID: connectionId,  // Changed to match DynamoDB schema
-                    serviceType: SERVICE_TYPE
+                    connectionID: connectionId
                 }
             }).promise(),
             3,  // max retries
@@ -254,8 +276,7 @@ const updateConnectionLocation = async (connectionId, locationName) => {
             () => dynamoDB.update({
                 TableName: CONNECTIONS_TABLE,
                 Key: { 
-                    connectionID: connectionId,  // Changed to match DynamoDB schema
-                    serviceType: SERVICE_TYPE
+                    connectionID: connectionId
                 },
                 UpdateExpression: 'SET locationName = :locationName',
                 ExpressionAttributeValues: {

@@ -23,32 +23,30 @@ const dbConfig = {
         user: process.env.DB_USER,
         password: process.env.DB_PASSWORD,
         database: process.env.DB_NAME,
+        // Connection pool settings
         waitForConnections: true,
         connectionLimit: 10,
         queueLimit: 0,
+        // Keep alive settings
         enableKeepAlive: true,
         keepAliveInitialDelay: 0,
-        // Add valid mysql2 timeouts
+        // Connection timeout
         connectTimeout: 10000, // Connection timeout in milliseconds
-        waitForConnections: true, // Whether to wait for connections to be available
-        maxIdle: 10, // Max idle connections in the pool
-        idleTimeout: 60000, // How long a connection can be idle before being removed
     },
     replica: {
         host: process.env.DB_READ_REPLICA_HOST,
         user: process.env.DB_USER,
         password: process.env.DB_PASSWORD,
         database: process.env.DB_NAME,
+        // Connection pool settings
         waitForConnections: true,
         connectionLimit: 10,
         queueLimit: 0,
+        // Keep alive settings
         enableKeepAlive: true,
         keepAliveInitialDelay: 0,
-        // Add valid mysql2 timeouts
+        // Connection timeout
         connectTimeout: 10000, // Connection timeout in milliseconds
-        waitForConnections: true, // Whether to wait for connections to be available
-        maxIdle: 10, // Max idle connections in the pool
-        idleTimeout: 60000, // How long a connection can be idle before being removed
     }
 };
 
