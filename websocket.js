@@ -94,27 +94,33 @@ const getActiveConnections = async () => {
 };
 
 const sendMessageToClient = async (connectionId, payload) => {
-    console.log('Sending message to client:', { 
-        connectionId,
-        payloadType: payload.type
-    });
-    
     try {
-        await apiGateway.send(new PostToConnectionCommand({
-            ConnectionId: connectionId,
-            Data: JSON.stringify(payload)
-        }));
+        console.log('Starting message send to client:', { 
+            connectionId, 
+            payloadType: payload.type 
+        });
         
-        console.log('Message sent successfully:', { connectionId });
+        await apiGateway.send(
+            new PostToConnectionCommand({
+                ConnectionId: connectionId,
+                Data: JSON.stringify(payload)
+            })
+        );
+        
+        console.log('Message sent successfully');
+        return true;
     } catch (error) {
+        // Only mark as stale if we get a 410 GONE status
         if (error.$metadata?.httpStatusCode === 410) {
-            console.log('Connection stale, removing:', { connectionId });
+            console.log('Connection gone, removing:', { connectionId });
             await removeConnection(connectionId);
-            return;
+            return false;
         }
         
-        console.error('Failed to send message:', {
+        // For other errors, log but don't mark as stale
+        console.error('Error sending message:', {
             error: error.message,
+            code: error.$metadata?.httpStatusCode,
             connectionId
         });
         throw error;
