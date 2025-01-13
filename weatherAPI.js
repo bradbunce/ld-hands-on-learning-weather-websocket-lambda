@@ -47,12 +47,18 @@ const getWeatherForLocation = async (location) => {
         console.log('Fetching weather for location:', location);
 
         const query = getLocationQuery(location);
-        const response = await axios.get(`${WEATHER_API_BASE_URL}/current.json`, {
-            params: {
-                key: WEATHER_API_KEY,
-                q: query
-            }
-        });
+        const response = await Promise.race([
+            axios.get(`${WEATHER_API_BASE_URL}/current.json`, {
+                params: {
+                    key: WEATHER_API_KEY,
+                    q: query
+                },
+                timeout: 10000 // 10 second timeout
+            }),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Weather API request timeout')), 10000)
+            )
+        ]);
 
         console.log('Weather API response received for:', location.name || query);
         return formatWeatherData(response.data, location);
@@ -87,6 +93,7 @@ const getWeatherUpdates = async (locations) => {
 
     console.log('Fetching weather updates for locations:', locations);
 
+    // Add overall timeout for all weather updates
     const weatherPromises = locations.map(location => 
         getWeatherForLocation(location)
             .catch(error => ({
@@ -96,7 +103,13 @@ const getWeatherUpdates = async (locations) => {
             }))
     );
 
-    const results = await Promise.all(weatherPromises);
+    // Race between all weather updates and a global timeout
+    const results = await Promise.race([
+        Promise.all(weatherPromises),
+        new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Weather updates global timeout')), 20000)
+        )
+    ]);
 
     // Log any errors that occurred
     results.forEach(result => {

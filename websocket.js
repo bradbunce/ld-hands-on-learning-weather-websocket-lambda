@@ -18,15 +18,21 @@ const SERVICE_TYPE = 'weather-updates';
 
 const storeConnection = async (connectionId, clientId) => {
     try {
-        await dynamoDB.put({
-            TableName: CONNECTIONS_TABLE,
-            Item: {
-                connectionId: connectionId,
-                serviceType: SERVICE_TYPE,
-                clientId: clientId,
-                timestamp: Date.now()
-            }
-        }).promise();
+        // Add timeout to DynamoDB operation
+        await Promise.race([
+            dynamoDB.put({
+                TableName: CONNECTIONS_TABLE,
+                Item: {
+                    connectionId: connectionId,
+                    serviceType: SERVICE_TYPE,
+                    clientId: clientId,
+                    timestamp: Date.now()
+                }
+            }).promise(),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('DynamoDB put timeout')), 5000)
+            )
+        ]);
     } catch (error) {
         console.error('Error storing connection in DynamoDB:', error);
         throw error;
@@ -35,13 +41,19 @@ const storeConnection = async (connectionId, clientId) => {
 
 const removeConnection = async (connectionId) => {
     try {
-        await dynamoDB.delete({
-            TableName: CONNECTIONS_TABLE,
-            Key: { 
-                connectionId: connectionId,
-                serviceType: SERVICE_TYPE
-            }
-        }).promise();
+        // Add timeout to DynamoDB operation
+        await Promise.race([
+            dynamoDB.delete({
+                TableName: CONNECTIONS_TABLE,
+                Key: { 
+                    connectionId: connectionId,
+                    serviceType: SERVICE_TYPE
+                }
+            }).promise(),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('DynamoDB delete timeout')), 5000)
+            )
+        ]);
     } catch (error) {
         console.error('Error removing connection from DynamoDB:', error);
         throw error;
@@ -50,13 +62,19 @@ const removeConnection = async (connectionId) => {
 
 const getActiveConnections = async () => {
     try {
-        const { Items } = await dynamoDB.query({
-            TableName: CONNECTIONS_TABLE,
-            KeyConditionExpression: 'serviceType = :serviceType',
-            ExpressionAttributeValues: {
-                ':serviceType': SERVICE_TYPE
-            }
-        }).promise();
+        // Add timeout to DynamoDB operation
+        const { Items } = await Promise.race([
+            dynamoDB.query({
+                TableName: CONNECTIONS_TABLE,
+                KeyConditionExpression: 'serviceType = :serviceType',
+                ExpressionAttributeValues: {
+                    ':serviceType': SERVICE_TYPE
+                }
+            }).promise(),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('DynamoDB query timeout')), 5000)
+            )
+        ]);
         return Items;
     } catch (error) {
         console.error('Error getting active connections from DynamoDB:', error);
@@ -66,10 +84,16 @@ const getActiveConnections = async () => {
 
 const sendMessageToClient = async (connectionId, payload) => {
     try {
-        await apiGatewayManagementApi.postToConnection({
-            ConnectionId: connectionId,
-            Data: JSON.stringify(payload)
-        }).promise();
+        // Add timeout to WebSocket API call
+        await Promise.race([
+            apiGatewayManagementApi.postToConnection({
+                ConnectionId: connectionId,
+                Data: JSON.stringify(payload)
+            }).promise(),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('WebSocket API timeout')), 5000)
+            )
+        ]);
     } catch (error) {
         if (error.statusCode === 410) {
             console.log('Connection stale, removing:', connectionId);
@@ -119,17 +143,23 @@ const verifyToken = (token) => {
 
 const updateConnectionLocation = async (connectionId, locationName) => {
     try {
-        await dynamoDB.update({
-            TableName: CONNECTIONS_TABLE,
-            Key: { 
-                connectionId: connectionId,
-                serviceType: SERVICE_TYPE
-            },
-            UpdateExpression: 'SET locationName = :locationName',
-            ExpressionAttributeValues: {
-                ':locationName': locationName
-            }
-        }).promise();
+        // Add timeout to DynamoDB operation
+        await Promise.race([
+            dynamoDB.update({
+                TableName: CONNECTIONS_TABLE,
+                Key: { 
+                    connectionId: connectionId,
+                    serviceType: SERVICE_TYPE
+                },
+                UpdateExpression: 'SET locationName = :locationName',
+                ExpressionAttributeValues: {
+                    ':locationName': locationName
+                }
+            }).promise(),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('DynamoDB update timeout')), 5000)
+            )
+        ]);
     } catch (error) {
         console.error('Error updating connection location:', error);
         throw error;
