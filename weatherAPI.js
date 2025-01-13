@@ -36,9 +36,17 @@ const formatWeatherData = (weatherData, location) => {
 };
 
 const getLocationQuery = (location) => {
-    // Check for coordinate variations with fallback to table schema
-    if (location.latitude && location.longitude) {
-        return `${location.latitude},${location.longitude}`;
+    // Convert string coordinates to numbers if needed
+    const lat = typeof location.latitude === 'string' 
+        ? parseFloat(location.latitude) 
+        : location.latitude;
+    const lon = typeof location.longitude === 'string' 
+        ? parseFloat(location.longitude) 
+        : location.longitude;
+
+    // Check for coordinate variations
+    if (lat && lon) {
+        return `${lat},${lon}`;
     }
     
     // Check for alternative coordinate formats
