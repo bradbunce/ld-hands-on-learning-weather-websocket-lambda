@@ -63,6 +63,12 @@ const getWeatherForLocation = async (location) => {
             )
         ]);
 
+        console.log('Weather API raw response:', {
+            data: JSON.stringify(response.data),
+            status: response.status,
+            locationName: location.city_name
+        });
+
         console.log('Weather API response received for:', location.name || query);
         return formatWeatherData(response.data, location);
     } catch (error) {
