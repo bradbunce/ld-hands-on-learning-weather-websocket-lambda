@@ -36,28 +36,28 @@ const formatWeatherData = (weatherData, location) => {
 };
 
 const getLocationQuery = (location) => {
-    // Convert string coordinates to numbers if needed
-    const lat = typeof location.latitude === 'string' 
-        ? parseFloat(location.latitude) 
-        : location.latitude;
-    const lon = typeof location.longitude === 'string' 
-        ? parseFloat(location.longitude) 
-        : location.longitude;
+    // Check for coordinate variations, converting string to number
+    const lat = location.latitude 
+        ? (typeof location.latitude === 'string' ? parseFloat(location.latitude) : location.latitude)
+        : (location.lat ? parseFloat(location.lat) : null);
+    
+    const lon = location.longitude 
+        ? (typeof location.longitude === 'string' ? parseFloat(location.longitude) : location.longitude)
+        : (location.lon ? parseFloat(location.lon) : null);
 
-    // Check for coordinate variations
+    // Comprehensive coordinates check
     if (lat && lon) {
         return `${lat},${lon}`;
     }
     
-    // Check for alternative coordinate formats
-    if ((location.lat && location.lon) || 
-        (location.coordinates && location.coordinates.lat && location.coordinates.lon)) {
-        return `${location.lat || location.coordinates.lat},${location.lon || location.coordinates.lon}`;
+    // Check for coordinate-like nested object
+    if (location.coordinates && location.coordinates.lat && location.coordinates.lon) {
+        return `${location.coordinates.lat},${location.coordinates.lon}`;
     }
     
-    // Check for name variations
+    // Check for name variations with optional country code for precision
     if (location.name || location.city_name) {
-        // If both city and country are available, combine them for more precise querying
+        // Prioritize city_name and country_code if both are available
         if (location.city_name && location.country_code) {
             return `${location.city_name}, ${location.country_code}`;
         }
@@ -65,7 +65,7 @@ const getLocationQuery = (location) => {
     }
     
     // Detailed error logging
-    console.error('Invalid location object received:', location);
+    console.error('Invalid location object received:', JSON.stringify(location, null, 2));
     throw new Error('Location must have either coordinates or name');
 };
 
