@@ -1,298 +1,176 @@
-const AWS = require('aws-sdk');
+const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBDocumentClient, PutCommand, DeleteCommand, UpdateCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
+const { ApiGatewayManagementApiClient, PostToConnectionCommand } = require('@aws-sdk/client-apigatewaymanagementapi');
 const jwt = require('jsonwebtoken');
-const dynamoDB = new AWS.DynamoDB.DocumentClient({
-    httpOptions: {
-        timeout: 15000 // 15 seconds
-    },
-    maxRetries: 3
+
+// Initialize DynamoDB client
+const client = new DynamoDBClient({
+    maxAttempts: 3,
+    requestTimeout: 5000
+});
+const dynamo = DynamoDBDocumentClient.from(client, {
+    marshallOptions: {
+        removeUndefinedValues: true,
+    }
 });
 
-const CONNECTIONS_TABLE = 'brad-weather-app-websocket-connections';
+const CONNECTIONS_TABLE = process.env.CONNECTIONS_TABLE || 'brad-weather-app-websocket-connections';
 const ENDPOINT = process.env.WEBSOCKET_API_ENDPOINT;
 
 if (!ENDPOINT) {
     throw new Error('WEBSOCKET_API_ENDPOINT environment variable is required');
 }
 
-const apiGatewayManagementApi = new AWS.ApiGatewayManagementApi({
-    apiVersion: '2018-11-29',
+// Initialize API Gateway client
+const apiGateway = new ApiGatewayManagementApiClient({
     endpoint: ENDPOINT,
-    httpOptions: {
-        timeout: 15000 // 15 seconds
-    },
-    maxRetries: 3
+    maxAttempts: 3,
+    requestTimeout: 5000
 });
 
-const SERVICE_TYPE = 'weather-updates';
-
-// Helper function for retrying operations
-const retryOperation = async (operation, maxRetries = 3, timeout = 10000) => {
-    let lastError;
-    for (let i = 0; i < maxRetries; i++) {
-        try {
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error(`Operation timed out after ${timeout}ms`)), timeout)
-            );
-            
-            return await Promise.race([operation(), timeoutPromise]);
-        } catch (error) {
-            lastError = error;
-            console.warn(`Attempt ${i + 1}/${maxRetries} failed:`, {
-                error: error.message,
-                code: error.code,
-                statusCode: error.statusCode,
-                attempt: i + 1,
-                maxRetries
-            });
-            
-            if (i < maxRetries - 1) {
-                // Exponential backoff: 100ms, 200ms, 400ms...
-                await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 100));
-            }
-        }
-    }
-    throw lastError;
-};
-
-const storeConnection = async (connectionId, clientId) => {
-    console.log('Attempting to store connection:', {
-        connectionId,
-        clientId,
-        serviceType: SERVICE_TYPE,
-        table: CONNECTIONS_TABLE,
-        timestamp: new Date().toISOString()
-    });
-
+const storeConnection = async (connectionId, userId) => {
+    console.log('Storing connection:', { connectionId, userId });
+    
     try {
-        // Store the connection directly
-        await retryOperation(
-            () => dynamoDB.put({
-                TableName: CONNECTIONS_TABLE,
-                Item: {
-                    connectionID: connectionId,
-                    clientId: clientId,
-                    timestamp: Date.now(),
-                    serviceType: SERVICE_TYPE
-                }
-            }).promise(),
-            3,  // max retries
-            15000 // 15 second timeout
-        );
-
-        console.log('Successfully stored connection:', {
-            connectionId,
-            clientId,
-            timestamp: new Date().toISOString()
-        });
+        await dynamo.send(new PutCommand({
+            TableName: CONNECTIONS_TABLE,
+            Item: {
+                connectionId,
+                userId,
+                timestamp: Date.now(),
+                ttl: Math.floor(Date.now() / 1000) + (24 * 60 * 60), // 24 hour TTL
+                serviceType: 'weather-updates'
+            }
+        }));
+        
+        console.log('Connection stored successfully:', { connectionId, userId });
     } catch (error) {
-        console.error('Failed to store connection after retries:', {
+        console.error('Failed to store connection:', {
             error: error.message,
-            code: error.code,
-            statusCode: error.statusCode,
             connectionId,
-            clientId,
-            table: CONNECTIONS_TABLE,
-            timestamp: new Date().toISOString()
+            userId
         });
         throw error;
     }
 };
 
 const removeConnection = async (connectionId) => {
-    console.log('Attempting to remove connection:', {
-        connectionId,
-        table: CONNECTIONS_TABLE,
-        timestamp: new Date().toISOString()
-    });
-
+    console.log('Removing connection:', { connectionId });
+    
     try {
-        await retryOperation(
-            () => dynamoDB.delete({
-                TableName: CONNECTIONS_TABLE,
-                Key: { 
-                    connectionID: connectionId,
-                    serviceType: SERVICE_TYPE
-                }
-            }).promise(),
-            3,  // max retries
-            15000 // 15 second timeout
-        );
-
-        console.log('Successfully removed connection:', {
-            connectionId,
-            timestamp: new Date().toISOString()
-        });
+        await dynamo.send(new DeleteCommand({
+            TableName: CONNECTIONS_TABLE,
+            Key: { connectionId }
+        }));
+        
+        console.log('Connection removed successfully:', { connectionId });
     } catch (error) {
-        console.error('Failed to remove connection after retries:', {
+        console.error('Failed to remove connection:', {
             error: error.message,
-            code: error.code,
-            statusCode: error.statusCode,
-            connectionId,
-            table: CONNECTIONS_TABLE,
-            timestamp: new Date().toISOString()
+            connectionId
         });
         throw error;
     }
 };
 
 const getActiveConnections = async () => {
-    console.log('Attempting to get active connections:', {
-        table: CONNECTIONS_TABLE,
-        serviceType: SERVICE_TYPE,
-        timestamp: new Date().toISOString()
-    });
-
+    console.log('Getting active connections');
+    
     try {
-        // Since connectionID is the partition key and serviceType is the sort key,
-        // we need to use scan with a filter to get all connections for a service type
-        const { Items } = await retryOperation(
-            () => dynamoDB.scan({
-                TableName: CONNECTIONS_TABLE,
-                FilterExpression: 'serviceType = :serviceType',
-                ExpressionAttributeValues: {
-                    ':serviceType': SERVICE_TYPE
-                }
-            }).promise(),
-            3,  // max retries
-            15000 // 15 second timeout
-        );
-
-        console.log('Successfully retrieved active connections:', {
-            connectionCount: Items.length,
-            timestamp: new Date().toISOString()
-        });
-
-        return Items;
+        const { Items } = await dynamo.send(new ScanCommand({
+            TableName: CONNECTIONS_TABLE,
+            FilterExpression: 'serviceType = :type',
+            ExpressionAttributeValues: {
+                ':type': 'weather-updates'
+            }
+        }));
+        
+        console.log('Retrieved active connections:', { count: Items?.length || 0 });
+        return Items || [];
     } catch (error) {
-        console.error('Failed to get active connections after retries:', {
-            error: error.message,
-            code: error.code,
-            statusCode: error.statusCode,
-            table: CONNECTIONS_TABLE,
-            timestamp: new Date().toISOString()
-        });
+        console.error('Failed to get active connections:', error.message);
         throw error;
     }
 };
 
 const sendMessageToClient = async (connectionId, payload) => {
-    console.log('Attempting to send message to client:', {
+    console.log('Sending message to client:', { 
         connectionId,
-        payloadType: payload.type,
-        timestamp: new Date().toISOString()
+        payloadType: payload.type
     });
-
+    
     try {
-        await retryOperation(
-            () => apiGatewayManagementApi.postToConnection({
-                ConnectionId: connectionId,
-                Data: JSON.stringify(payload)
-            }).promise(),
-            3,  // max retries
-            15000 // 15 second timeout
-        );
-
-        console.log('Successfully sent message to client:', {
-            connectionId,
-            payloadType: payload.type,
-            timestamp: new Date().toISOString()
-        });
+        await apiGateway.send(new PostToConnectionCommand({
+            ConnectionId: connectionId,
+            Data: JSON.stringify(payload)
+        }));
+        
+        console.log('Message sent successfully:', { connectionId });
     } catch (error) {
-        if (error.statusCode === 410) {
-            console.log('Connection stale, removing:', {
-                connectionId,
-                timestamp: new Date().toISOString()
-            });
+        if (error.$metadata?.httpStatusCode === 410) {
+            console.log('Connection stale, removing:', { connectionId });
             await removeConnection(connectionId);
-        } else {
-            console.error('Failed to send message to client after retries:', {
-                error: error.message,
-                code: error.code,
-                statusCode: error.statusCode,
-                connectionId,
-                payloadType: payload.type,
-                timestamp: new Date().toISOString()
-            });
-            throw error;
+            return;
         }
+        
+        console.error('Failed to send message:', {
+            error: error.message,
+            connectionId
+        });
+        throw error;
     }
 };
 
 const verifyToken = (token) => {
-    console.log('Token Verification Attempt:', {
-        tokenLength: token.length,
-        tokenStart: token.substring(0, 20)
-    });
-
-    // Check environment variable
     if (!process.env.JWT_SECRET) {
-        console.error('JWT_SECRET environment variable is not set');
         throw new Error('JWT_SECRET is not configured');
     }
 
     try {
-        // Verify the token directly
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-        console.log('Token Decoded Successfully:', {
+        console.log('Token verified:', { 
             userId: decoded.userId,
             username: decoded.username
         });
-
         return decoded;
     } catch (error) {
-        console.error('Token Verification Failed:', {
-            name: error.name,
-            message: error.message
+        console.error('Token verification failed:', { 
+            error: error.message,
+            errorType: error.name 
         });
-
+        
         if (error.name === 'TokenExpiredError') {
             throw new Error('Token has expired');
         }
-
         throw new Error('Invalid token');
     }
 };
 
 const updateConnectionLocation = async (connectionId, locationName) => {
-    console.log('Attempting to update connection location:', {
+    console.log('Updating connection location:', { 
         connectionId,
-        locationName,
-        table: CONNECTIONS_TABLE,
-        timestamp: new Date().toISOString()
+        locationName
     });
-
+    
     try {
-        await retryOperation(
-            () => dynamoDB.update({
-                TableName: CONNECTIONS_TABLE,
-                Key: { 
-                    connectionID: connectionId,
-                    serviceType: SERVICE_TYPE
-                },
-                UpdateExpression: 'SET locationName = :locationName',
-                ExpressionAttributeValues: {
-                    ':locationName': locationName
-                }
-            }).promise(),
-            3,  // max retries
-            15000 // 15 second timeout
-        );
-
-        console.log('Successfully updated connection location:', {
+        await dynamo.send(new UpdateCommand({
+            TableName: CONNECTIONS_TABLE,
+            Key: { connectionId },
+            UpdateExpression: 'SET locationName = :locationName',
+            ExpressionAttributeValues: {
+                ':locationName': locationName
+            }
+        }));
+        
+        console.log('Location updated successfully:', { 
             connectionId,
-            locationName,
-            timestamp: new Date().toISOString()
+            locationName
         });
     } catch (error) {
-        console.error('Failed to update connection location after retries:', {
+        console.error('Failed to update location:', {
             error: error.message,
-            code: error.code,
-            statusCode: error.statusCode,
             connectionId,
-            locationName,
-            table: CONNECTIONS_TABLE,
-            timestamp: new Date().toISOString()
+            locationName
         });
         throw error;
     }
