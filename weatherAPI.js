@@ -3,25 +3,157 @@ const axios = require('axios');
 const WEATHER_API_KEY = process.env.WEATHER_API_KEY;
 const WEATHER_API_BASE_URL = 'http://api.weatherapi.com/v1';
 
-const getWeatherUpdates = async (locations) => {
+if (!WEATHER_API_KEY) {
+    throw new Error('WEATHER_API_KEY environment variable is required');
+}
+
+// Format weather data into a consistent structure
+const formatWeatherData = (weatherData, location) => {
     try {
-        const weatherPromises = locations.map(location => 
-            axios.get(`${WEATHER_API_BASE_URL}/current.json`, {
-                params: {
-                    key: WEATHER_API_KEY,
-                    q: `${location.latitude},${location.longitude}`
-                }
-            })
-        );
-        
-        const responses = await Promise.all(weatherPromises);
-        return responses.map(response => response.data);
+        return {
+            locationName: location.name,
+            locationId: location.id,
+            temperature: weatherData.current.temp_c,
+            condition: weatherData.current.condition.text,
+            humidity: weatherData.current.humidity,
+            windSpeed: weatherData.current.wind_kph,
+            timestamp: new Date().toISOString(),
+            // Additional data that might be useful
+            feelsLike: weatherData.current.feelslike_c,
+            windDirection: weatherData.current.wind_dir,
+            pressure: weatherData.current.pressure_mb,
+            precipitation: weatherData.current.precip_mm,
+            cloud: weatherData.current.cloud,
+            uv: weatherData.current.uv
+        };
     } catch (error) {
-        console.error('Error fetching weather data:', error);
-        throw error;
+        console.error('Error formatting weather data:', error);
+        throw new Error('Invalid weather data format received from API');
     }
 };
 
+const getLocationQuery = (location) => {
+    if (location.latitude && location.longitude) {
+        return `${location.latitude},${location.longitude}`;
+    }
+    if (location.name) {
+        return location.name;
+    }
+    throw new Error('Location must have either coordinates or name');
+};
+
+const getWeatherForLocation = async (location) => {
+    try {
+        console.log('Fetching weather for location:', location);
+
+        const query = getLocationQuery(location);
+        const response = await axios.get(`${WEATHER_API_BASE_URL}/current.json`, {
+            params: {
+                key: WEATHER_API_KEY,
+                q: query
+            }
+        });
+
+        console.log('Weather API response received for:', location.name || query);
+        return formatWeatherData(response.data, location);
+    } catch (error) {
+        console.error('Error fetching weather for location:', {
+            location: location.name || getLocationQuery(location),
+            error: error.message,
+            status: error.response?.status,
+            data: error.response?.data
+        });
+
+        // Throw specific errors based on the response
+        if (error.response?.status === 400) {
+            throw new Error(`Invalid location: ${location.name || getLocationQuery(location)}`);
+        }
+        if (error.response?.status === 401) {
+            throw new Error('Invalid API key');
+        }
+        if (error.response?.status === 403) {
+            throw new Error('API key has exceeded its rate limit');
+        }
+        
+        throw new Error('Failed to fetch weather data');
+    }
+};
+
+const getWeatherUpdates = async (locations) => {
+    if (!Array.isArray(locations) || locations.length === 0) {
+        console.warn('No locations provided for weather updates');
+        return [];
+    }
+
+    console.log('Fetching weather updates for locations:', locations);
+
+    const weatherPromises = locations.map(location => 
+        getWeatherForLocation(location)
+            .catch(error => ({
+                locationName: location.name || getLocationQuery(location),
+                error: error.message,
+                timestamp: new Date().toISOString()
+            }))
+    );
+
+    const results = await Promise.all(weatherPromises);
+
+    // Log any errors that occurred
+    results.forEach(result => {
+        if (result.error) {
+            console.error('Weather fetch failed for location:', result);
+        }
+    });
+
+    return results;
+};
+
+// Cache weather data with TTL
+const weatherCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+const getCachedWeather = async (locations, forceFresh = false) => {
+    const now = Date.now();
+    const results = [];
+
+    for (const location of locations) {
+        const cacheKey = getLocationQuery(location);
+        const cached = weatherCache.get(cacheKey);
+
+        if (!forceFresh && cached && (now - cached.timestamp) < CACHE_TTL) {
+            results.push(cached.data);
+        } else {
+            try {
+                const freshData = await getWeatherForLocation(location);
+                weatherCache.set(cacheKey, {
+                    data: freshData,
+                    timestamp: now
+                });
+                results.push(freshData);
+            } catch (error) {
+                console.error('Error fetching fresh weather data:', error);
+                if (cached) {
+                    // Use stale cache if fresh fetch fails
+                    results.push({
+                        ...cached.data,
+                        isStale: true
+                    });
+                } else {
+                    results.push({
+                        locationName: location.name || getLocationQuery(location),
+                        error: error.message,
+                        timestamp: new Date().toISOString()
+                    });
+                }
+            }
+        }
+    }
+
+    return results;
+};
+
 module.exports = {
-    getWeatherUpdates
+    getWeatherUpdates,
+    getCachedWeather,
+    getWeatherForLocation
 };

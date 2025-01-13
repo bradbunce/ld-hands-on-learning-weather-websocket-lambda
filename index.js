@@ -1,69 +1,172 @@
 // index.js
-
-const { storeConnection, removeConnection, getActiveConnections, sendMessageToClient } = require('./websocket');
+const {
+    storeConnection,
+    removeConnection,
+    sendMessageToClient,
+    verifyToken,
+    updateConnectionLocation
+} = require('./websocket');
 const { processWeatherData } = require('./dataProcessor');
 const { getWeatherUpdates } = require('./weatherAPI');
 const { getLocationsForUser } = require('./database');
 
 exports.handler = async (event) => {
+    console.log('Received event:', {
+        routeKey: event.requestContext.routeKey,
+        connectionId: event.requestContext.connectionId,
+        body: event.body
+    });
+
+    const connectionId = event.requestContext.connectionId;
+
     try {
-        const routeKey = event.requestContext.routeKey;
-        const connectionId = event.requestContext.connectionId;
-        
-        switch (routeKey) {
-            case '$connect':
-                const clientId = event.queryStringParameters?.userId;
-                if (!clientId) {
-                    return { statusCode: 400, body: 'userId is required' };
+        switch (event.requestContext.routeKey) {
+            case '$connect': {
+                // Token is passed as a query parameter during connection
+                const token = event.queryStringParameters?.token;
+                if (!token) {
+                    return { statusCode: 401, body: 'Authorization token required' };
                 }
-                await storeConnection(connectionId, clientId);
+
+                // Verify the token
+                const decoded = verifyToken(token);
+                if (!decoded) {
+                    return { statusCode: 401, body: 'Invalid token' };
+                }
+
+                // Store the connection with the user ID from the token
+                await storeConnection(connectionId, decoded.userId);
                 return { statusCode: 200, body: 'Connected' };
-                
+            }
+
             case '$disconnect':
                 await removeConnection(connectionId);
                 return { statusCode: 200, body: 'Disconnected' };
-                
-            case 'getWeather':
-                const body = JSON.parse(event.body);
-                const userId = body.userId;
-                
-                if (!userId) {
-                    console.error('Missing userId in request body');
-                    return { statusCode: 400, body: 'userId is required' };
+
+            case 'getWeather': {
+                const messageData = JSON.parse(event.body);
+                const { token, locationName } = messageData;
+
+                // Verify the token
+                const decoded = verifyToken(token);
+                if (!decoded) {
+                    await sendMessageToClient(connectionId, {
+                        type: 'error',
+                        message: 'Unauthorized'
+                    });
+                    return { statusCode: 401 };
                 }
 
-                console.log('Fetching locations for user:', userId);
-                console.log('Environment check:', {
-                    dbPrimaryHost: process.env.DB_PRIMARY_HOST ? 'Set' : 'Not set',
-                    dbReplicaHost: process.env.DB_READ_REPLICA_HOST ? 'Set' : 'Not set',
-                    dbUser: process.env.DB_USER ? 'Set' : 'Not set',
-                    dbPrimaryName: process.env.DB_NAME ? 'Set' : 'Not set',
-                    dbReplicaName: process.env.DB_NAME ? 'Set' : 'Not set'
+                console.log('Fetching weather for:', {
+                    userId: decoded.userId,
+                    locationName
                 });
-                
-                // Get user's saved locations
-                const locations = await getLocationsForUser(userId);
-                console.log('Retrieved locations:', locations);
-                
-                // Get weather data for all locations
-                const weatherData = await getWeatherUpdates(locations);
-                
-                // Process the weather data
+
+                try {
+                    // Update connection with the requested location
+                    if (locationName) {
+                        await updateConnectionLocation(connectionId, locationName);
+                    }
+
+                    // Get weather data for the location
+                    const locations = locationName ? 
+                        [{ name: locationName }] : 
+                        await getLocationsForUser(decoded.userId);
+
+                    console.log('Fetching weather for locations:', locations);
+
+                    const weatherData = await getWeatherUpdates(locations);
+                    const processedData = await processWeatherData(weatherData);
+
+                    await sendMessageToClient(connectionId, {
+                        type: 'weatherUpdate',
+                        data: processedData,
+                        timestamp: new Date().toISOString()
+                    });
+
+                    return { statusCode: 200 };
+                } catch (error) {
+                    console.error('Error processing weather request:', error);
+                    await sendMessageToClient(connectionId, {
+                        type: 'error',
+                        message: 'Error fetching weather data'
+                    });
+                    return { statusCode: 500 };
+                }
+            }
+
+            case 'subscribe': {
+                const messageData = JSON.parse(event.body);
+                const { token, locationName } = messageData;
+
+                if (!locationName) {
+                    await sendMessageToClient(connectionId, {
+                        type: 'error',
+                        message: 'Location name is required'
+                    });
+                    return { statusCode: 400 };
+                }
+
+                // Verify the token
+                const decoded = verifyToken(token);
+                if (!decoded) {
+                    await sendMessageToClient(connectionId, {
+                        type: 'error',
+                        message: 'Unauthorized'
+                    });
+                    return { statusCode: 401 };
+                }
+
+                // Update the connection with the new location
+                await updateConnectionLocation(connectionId, locationName);
+
+                // Send initial weather data
+                const weatherData = await getWeatherUpdates([{ name: locationName }]);
                 const processedData = await processWeatherData(weatherData);
-                
-                // Send the data back through the WebSocket
+
                 await sendMessageToClient(connectionId, {
                     type: 'weatherUpdate',
-                    data: processedData
+                    data: processedData,
+                    timestamp: new Date().toISOString()
                 });
-                
+
                 return { statusCode: 200 };
-                
+            }
+
+            case 'unsubscribe': {
+                const messageData = JSON.parse(event.body);
+                const { token } = messageData;
+
+                // Verify the token
+                const decoded = verifyToken(token);
+                if (!decoded) {
+                    await sendMessageToClient(connectionId, {
+                        type: 'error',
+                        message: 'Unauthorized'
+                    });
+                    return { statusCode: 401 };
+                }
+
+                // Remove location subscription
+                await updateConnectionLocation(connectionId, null);
+                return { statusCode: 200 };
+            }
+
             default:
+                console.warn('Unknown route:', event.requestContext.routeKey);
                 return { statusCode: 400, body: 'Unknown route' };
         }
     } catch (error) {
-        console.error('Error:', error);
+        console.error('Error processing request:', error);
+        // Try to notify the client of the error
+        try {
+            await sendMessageToClient(connectionId, {
+                type: 'error',
+                message: 'Internal server error'
+            });
+        } catch (sendError) {
+            console.error('Error sending error message to client:', sendError);
+        }
         return { statusCode: 500, body: 'Internal server error' };
     }
 };
