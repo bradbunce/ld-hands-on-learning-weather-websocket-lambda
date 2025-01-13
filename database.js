@@ -1,5 +1,6 @@
 const mysql = require('mysql2/promise');
 const queries = require('./queries');
+const { tableQueries } = require('./queries');
 
 // Validate required environment variables
 const requiredEnvVars = [
@@ -373,6 +374,47 @@ const updateLocationOrder = async (userId, locationOrders) => {
             userId,
             locationCount: locationOrders.length,
             timestamp: new Date().toISOString()
+        });
+
+        connection = await getConnection('write');
+        await connection.beginTransaction();
+
+        // Update each location's order with retry
+        for (const { locationId, order } of locationOrders) {
+            await retryOperation(
+                () => connection.execute(
+                    queries.updateLocationOrder,
+                    [order, locationId, userId]
+                ),
+                2,  // fewer retries per update
+                5000 // shorter timeout per update
+            );
+        }
+
+        await connection.commit();
+
+        console.log('Successfully updated location order:', {
+            userId,
+            locationCount: locationOrders.length,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        if (connection) {
+            await connection.rollback();
+        }
+        console.error('Error updating location order:', {
+            error: error.message,
+            userId,
+            locationOrders,
+            timestamp: new Date().toISOString()
+        });
+        throw error;
+    } finally {
+        if (connection) {
+            connection.release();
+        }
+    }
+};
 
 // Cleanup function to be run periodically
 const cleanupOldData = async () => {
