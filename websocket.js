@@ -81,46 +81,57 @@ const sendMessageToClient = async (connectionId, payload) => {
     }
 };
 
-const verifyToken = (authHeader) => {
-    console.log('Full Authorization Header:', authHeader);
-    console.log('Environment Variables:', {
-        JWT_SECRET_EXISTS: !!process.env.JWT_SECRET,
-        JWT_SECRET_LENGTH: process.env.JWT_SECRET ? process.env.JWT_SECRET.length : 'N/A'
+const verifyToken = (token) => {
+    console.log('Token Verification Attempt:', {
+        tokenLength: token.length,
+        tokenStart: token.substring(0, 20)
     });
 
-    if (!authHeader) {
-        console.log('No Authorization header provided');
-        throw new Error('No token provided');
-    }
-
-    // Handle case-sensitivity and ensure proper Bearer format
-    const tokenMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-    if (!tokenMatch) {
-        console.log('Invalid Authorization header format');
-        console.log('Attempted header:', authHeader);
-        throw new Error('Invalid token format');
-    }
-
-    const token = tokenMatch[1];
-    console.log('Extracted token (first 20 chars):', token.substring(0, 20));
-
+    // Check environment variable
     if (!process.env.JWT_SECRET) {
-        console.error('JWT_SECRET environment variable NOT SET');
-        throw new Error('Server configuration error: Missing JWT_SECRET');
+        console.error('JWT_SECRET environment variable is not set');
+        throw new Error('JWT_SECRET is not configured');
     }
 
     try {
+        // Verify the token directly
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        console.log('Token decoded successfully:', {
+
+        console.log('Token Decoded Successfully:', {
             userId: decoded.userId,
             username: decoded.username
         });
+
         return decoded;
     } catch (error) {
-        console.error('Token verification FAILED:', {
-            errorName: error.name,
-            errorMessage: error.message
+        console.error('Token Verification Failed:', {
+            name: error.name,
+            message: error.message
         });
+
+        if (error.name === 'TokenExpiredError') {
+            throw new Error('Token has expired');
+        }
+
+        throw new Error('Invalid token');
+    }
+};
+
+const updateConnectionLocation = async (connectionId, locationName) => {
+    try {
+        await dynamoDB.update({
+            TableName: CONNECTIONS_TABLE,
+            Key: { 
+                connectionId: connectionId,
+                serviceType: SERVICE_TYPE
+            },
+            UpdateExpression: 'SET locationName = :locationName',
+            ExpressionAttributeValues: {
+                ':locationName': locationName
+            }
+        }).promise();
+    } catch (error) {
+        console.error('Error updating connection location:', error);
         throw error;
     }
 };
@@ -130,5 +141,6 @@ module.exports = {
     removeConnection,
     getActiveConnections,
     sendMessageToClient,
-    verifyToken
+    verifyToken,
+    updateConnectionLocation
 };
