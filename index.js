@@ -1,4 +1,3 @@
-// index.js
 const {
     storeConnection,
     removeConnection,
@@ -11,51 +10,83 @@ const { getWeatherUpdates } = require('./weatherAPI');
 const { getLocationsForUser } = require('./database');
 
 exports.handler = async (event) => {
-    console.log('Received event:', {
+    console.log('Received WebSocket Event:', JSON.stringify({
         routeKey: event.requestContext.routeKey,
         connectionId: event.requestContext.connectionId,
+        queryParams: event.queryStringParameters,
         body: event.body
-    });
+    }, null, 2));
 
     const connectionId = event.requestContext.connectionId;
 
     try {
         switch (event.requestContext.routeKey) {
             case '$connect': {
-                // Token is passed as a query parameter during connection
+                // Extract token from query parameters
                 const token = event.queryStringParameters?.token;
+                
+                console.log('Connection Token Details:', {
+                    tokenPresent: !!token,
+                    tokenLength: token ? token.length : 'N/A',
+                    tokenStart: token ? token.substring(0, 20) : 'N/A'
+                });
+
                 if (!token) {
-                    return { statusCode: 401, body: 'Authorization token required' };
+                    console.log('No token provided during connection');
+                    return { 
+                        statusCode: 401, 
+                        body: JSON.stringify({ message: 'Authorization token required' }) 
+                    };
                 }
 
-                // Verify the token
-                const decoded = verifyToken(token);
-                if (!decoded) {
-                    return { statusCode: 401, body: 'Invalid token' };
-                }
+                try {
+                    // Verify the token
+                    const decoded = verifyToken(token);
 
-                // Store the connection with the user ID from the token
-                await storeConnection(connectionId, decoded.userId);
-                return { statusCode: 200, body: 'Connected' };
+                    // Store the connection with the user ID from the token
+                    await storeConnection(connectionId, decoded.userId);
+                    
+                    console.log('Connection stored successfully', {
+                        connectionId,
+                        userId: decoded.userId
+                    });
+
+                    return { 
+                        statusCode: 200, 
+                        body: JSON.stringify({ 
+                            message: 'Connected successfully',
+                            userId: decoded.userId
+                        }) 
+                    };
+                } catch (verificationError) {
+                    console.error('Token Verification Error:', {
+                        name: verificationError.name,
+                        message: verificationError.message
+                    });
+
+                    return { 
+                        statusCode: 401, 
+                        body: JSON.stringify({ message: 'Invalid token' }) 
+                    };
+                }
             }
 
             case '$disconnect':
+                console.log('Removing connection:', connectionId);
                 await removeConnection(connectionId);
-                return { statusCode: 200, body: 'Disconnected' };
+                return { 
+                    statusCode: 200, 
+                    body: JSON.stringify({ message: 'Disconnected successfully' }) 
+                };
 
             case 'getWeather': {
                 const messageData = JSON.parse(event.body);
                 const { token, locationName } = messageData;
 
+                console.log('Get Weather Request:', { locationName });
+
                 // Verify the token
                 const decoded = verifyToken(token);
-                if (!decoded) {
-                    await sendMessageToClient(connectionId, {
-                        type: 'error',
-                        message: 'Unauthorized'
-                    });
-                    return { statusCode: 401 };
-                }
 
                 console.log('Fetching weather for:', {
                     userId: decoded.userId,
@@ -84,14 +115,22 @@ exports.handler = async (event) => {
                         timestamp: new Date().toISOString()
                     });
 
-                    return { statusCode: 200 };
+                    return { 
+                        statusCode: 200, 
+                        body: JSON.stringify({ message: 'Weather data sent' }) 
+                    };
                 } catch (error) {
                     console.error('Error processing weather request:', error);
+                    
                     await sendMessageToClient(connectionId, {
                         type: 'error',
                         message: 'Error fetching weather data'
                     });
-                    return { statusCode: 500 };
+
+                    return { 
+                        statusCode: 500, 
+                        body: JSON.stringify({ message: 'Internal server error' }) 
+                    };
                 }
             }
 
@@ -99,23 +138,21 @@ exports.handler = async (event) => {
                 const messageData = JSON.parse(event.body);
                 const { token, locationName } = messageData;
 
+                console.log('Subscribe Request:', { locationName });
+
                 if (!locationName) {
                     await sendMessageToClient(connectionId, {
                         type: 'error',
                         message: 'Location name is required'
                     });
-                    return { statusCode: 400 };
+                    return { 
+                        statusCode: 400, 
+                        body: JSON.stringify({ message: 'Location name is required' }) 
+                    };
                 }
 
                 // Verify the token
                 const decoded = verifyToken(token);
-                if (!decoded) {
-                    await sendMessageToClient(connectionId, {
-                        type: 'error',
-                        message: 'Unauthorized'
-                    });
-                    return { statusCode: 401 };
-                }
 
                 // Update the connection with the new location
                 await updateConnectionLocation(connectionId, locationName);
@@ -130,43 +167,56 @@ exports.handler = async (event) => {
                     timestamp: new Date().toISOString()
                 });
 
-                return { statusCode: 200 };
+                return { 
+                    statusCode: 200, 
+                    body: JSON.stringify({ message: 'Subscribed successfully' }) 
+                };
             }
 
             case 'unsubscribe': {
                 const messageData = JSON.parse(event.body);
                 const { token } = messageData;
 
+                console.log('Unsubscribe Request');
+
                 // Verify the token
                 const decoded = verifyToken(token);
-                if (!decoded) {
-                    await sendMessageToClient(connectionId, {
-                        type: 'error',
-                        message: 'Unauthorized'
-                    });
-                    return { statusCode: 401 };
-                }
 
                 // Remove location subscription
                 await updateConnectionLocation(connectionId, null);
-                return { statusCode: 200 };
+                
+                return { 
+                    statusCode: 200, 
+                    body: JSON.stringify({ message: 'Unsubscribed successfully' }) 
+                };
             }
 
             default:
                 console.warn('Unknown route:', event.requestContext.routeKey);
-                return { statusCode: 400, body: 'Unknown route' };
+                return { 
+                    statusCode: 400, 
+                    body: JSON.stringify({ message: 'Unknown route' }) 
+                };
         }
     } catch (error) {
-        console.error('Error processing request:', error);
-        // Try to notify the client of the error
+        console.error('Unexpected Error:', {
+            name: error.name,
+            message: error.message,
+            stack: error.stack
+        });
+
         try {
             await sendMessageToClient(connectionId, {
                 type: 'error',
                 message: 'Internal server error'
             });
         } catch (sendError) {
-            console.error('Error sending error message to client:', sendError);
+            console.error('Error sending error message:', sendError);
         }
-        return { statusCode: 500, body: 'Internal server error' };
+
+        return { 
+            statusCode: 500, 
+            body: JSON.stringify({ message: 'Internal server error' }) 
+        };
     }
 };
