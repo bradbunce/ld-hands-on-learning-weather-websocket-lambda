@@ -58,7 +58,7 @@ const storeConnection = async (connectionId, clientId) => {
             () => dynamoDB.put({
                 TableName: CONNECTIONS_TABLE,
                 Item: {
-                    connectionId: connectionId,
+                    connectionID: connectionId,  // Changed to match DynamoDB schema
                     serviceType: SERVICE_TYPE,
                     clientId: clientId,
                     timestamp: Date.now()
@@ -99,7 +99,7 @@ const removeConnection = async (connectionId) => {
             () => dynamoDB.delete({
                 TableName: CONNECTIONS_TABLE,
                 Key: { 
-                    connectionId: connectionId,
+                    connectionID: connectionId,  // Changed to match DynamoDB schema
                     serviceType: SERVICE_TYPE
                 }
             }).promise(),
@@ -127,14 +127,15 @@ const removeConnection = async (connectionId) => {
 const getActiveConnections = async () => {
     console.log('Attempting to get active connections:', {
         table: CONNECTIONS_TABLE,
+        serviceType: SERVICE_TYPE,
         timestamp: new Date().toISOString()
     });
 
     try {
         const { Items } = await retryOperation(
-            () => dynamoDB.query({
+            () => dynamoDB.scan({
                 TableName: CONNECTIONS_TABLE,
-                KeyConditionExpression: 'serviceType = :serviceType',
+                FilterExpression: 'serviceType = :serviceType',
                 ExpressionAttributeValues: {
                     ':serviceType': SERVICE_TYPE
                 }
@@ -253,7 +254,7 @@ const updateConnectionLocation = async (connectionId, locationName) => {
             () => dynamoDB.update({
                 TableName: CONNECTIONS_TABLE,
                 Key: { 
-                    connectionId: connectionId,
+                    connectionID: connectionId,  // Changed to match DynamoDB schema
                     serviceType: SERVICE_TYPE
                 },
                 UpdateExpression: 'SET locationName = :locationName',
