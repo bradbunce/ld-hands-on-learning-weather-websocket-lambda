@@ -7,12 +7,11 @@ if (!WEATHER_API_KEY) {
     throw new Error('WEATHER_API_KEY environment variable is required');
 }
 
-// Format weather data into a consistent structure
 const formatWeatherData = (weatherData, location) => {
     try {
         return {
-            locationName: location.name,
-            locationId: location.id,
+            locationName: location.city_name,  // Changed from name
+            locationId: location.location_id,  // Changed from id
             temperature: weatherData.current.temp_c,
             condition: weatherData.current.condition.text,
             humidity: weatherData.current.humidity,
@@ -27,7 +26,11 @@ const formatWeatherData = (weatherData, location) => {
             uv: weatherData.current.uv
         };
     } catch (error) {
-        console.error('Error formatting weather data:', error);
+        console.error('Error formatting weather data:', {
+            error: error.message,
+            location,
+            weatherData
+        });
         throw new Error('Invalid weather data format received from API');
     }
 };
