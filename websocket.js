@@ -60,7 +60,8 @@ const storeConnection = async (connectionId, clientId) => {
             () => dynamoDB.get({
                 TableName: CONNECTIONS_TABLE,
                 Key: {
-                    connectionID: connectionId
+                    connectionID: connectionId,
+                    serviceType: SERVICE_TYPE
                 }
             }).promise(),
             2,  // fewer retries for check
@@ -122,7 +123,8 @@ const removeConnection = async (connectionId) => {
             () => dynamoDB.delete({
                 TableName: CONNECTIONS_TABLE,
                 Key: { 
-                    connectionID: connectionId
+                    connectionID: connectionId,
+                    serviceType: SERVICE_TYPE
                 }
             }).promise(),
             3,  // max retries
@@ -154,6 +156,8 @@ const getActiveConnections = async () => {
     });
 
     try {
+        // Since connectionID is the partition key and serviceType is the sort key,
+        // we need to use scan with a filter to get all connections for a service type
         const { Items } = await retryOperation(
             () => dynamoDB.scan({
                 TableName: CONNECTIONS_TABLE,
@@ -276,7 +280,8 @@ const updateConnectionLocation = async (connectionId, locationName) => {
             () => dynamoDB.update({
                 TableName: CONNECTIONS_TABLE,
                 Key: { 
-                    connectionID: connectionId
+                    connectionID: connectionId,
+                    serviceType: SERVICE_TYPE
                 },
                 UpdateExpression: 'SET locationName = :locationName',
                 ExpressionAttributeValues: {
