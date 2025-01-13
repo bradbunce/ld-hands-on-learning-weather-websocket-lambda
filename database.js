@@ -1,6 +1,5 @@
 const mysql = require('mysql2/promise');
-const queries = require('./queries');
-const { tableQueries } = require('./queries');
+const { queries, tableQueries } = require('./queries');
 
 // Validate required environment variables
 const requiredEnvVars = [
