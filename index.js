@@ -96,110 +96,88 @@ exports.handler = async (event) => {
                     body: JSON.stringify({ message: 'Disconnected successfully' }) 
                 };
 
-            case 'getWeather': {
-                logWithTiming('Processing getWeather route');
+                case 'getWeather': {
+                    console.log('CRITICAL: Entering getWeather route');
+                    
+                    const messageData = JSON.parse(event.body);
+                    const { token, locationName } = messageData;
                 
-                const messageData = JSON.parse(event.body);
-                const { token, locationName } = messageData;
-
-                logWithTiming('Get Weather Request', { locationName });
-
-                // Token verification
-                const decoded = verifyToken(token);
-                logWithTiming('Token verified', {
-                    userId: decoded.userId,
-                    locationName
-                });
-
-                try {
-                    // Update connection location
-                    if (locationName) {
-                        const updateStartTime = Date.now();
-                        await updateConnectionLocation(connectionId, locationName);
-                        const updateEndTime = Date.now();
-                        logWithTiming('Connection location updated', {
-                            updateTime: updateEndTime - updateStartTime
-                        });
-                    }
-
-                    // Get locations
-                    const locationsStartTime = Date.now();
-                    const locations = locationName ? 
-                        [{ name: locationName }] : 
-                        await getLocationsForUser(decoded.userId);
-                    const locationsEndTime = Date.now();
-                    
-                    logWithTiming('Locations retrieved', {
-                        locationCount: locations.length,
-                        retrievalTime: locationsEndTime - locationsStartTime
+                    console.log('CRITICAL: Message Data Received', { 
+                        locationNamePresent: !!locationName 
                     });
-
-                    // Fetch weather data
-                    const weatherStartTime = Date.now();
-                    const weatherData = await getWeatherUpdates(locations);
-                    const weatherEndTime = Date.now();
-                    
-                    logWithTiming('Weather data retrieved', {
-                        dataPoints: weatherData.length,
-                        retrievalTime: weatherEndTime - weatherStartTime
+                
+                    // Token verification
+                    console.log('CRITICAL: About to verify token');
+                    const decoded = verifyToken(token);
+                    console.log('CRITICAL: Token verified successfully', {
+                        userId: decoded.userId,
+                        locationName
                     });
-
-                    // Process weather data
-                    const processStartTime = Date.now();
-                    const processedData = await processWeatherData(weatherData);
-                    const processEndTime = Date.now();
-                    
-                    logWithTiming('Weather data processed', {
-                        processedDataPoints: processedData.length,
-                        processingTime: processEndTime - processStartTime
-                    });
-
-                    // Send message to client
-                    const sendStartTime = Date.now();
-                    await sendMessageToClient(connectionId, {
-                        type: 'weatherUpdate',
-                        data: processedData,
-                        timestamp: new Date().toISOString()
-                    });
-                    const sendEndTime = Date.now();
-                    
-                    logWithTiming('Message sent to client', {
-                        sendTime: sendEndTime - sendStartTime
-                    });
-
-                    return { 
-                        statusCode: 200, 
-                        body: JSON.stringify({ message: 'Weather data sent' }) 
-                    };
-                } catch (error) {
-                    logWithTiming('Error processing weather request', {
-                        name: error.name,
-                        message: error.message,
-                        stack: error.stack
-                    });
-                    
+                
+                    // IMMEDIATE next step logging
+                    console.log('CRITICAL: Immediately after token verification');
+                
                     try {
+                        // Detailed logging for each subsequent step
+                        console.log('CRITICAL: Preparing to update connection location');
+                        if (locationName) {
+                            console.log('CRITICAL: Updating connection location', { locationName });
+                            await updateConnectionLocation(connectionId, locationName);
+                            console.log('CRITICAL: Connection location updated');
+                        }
+                
+                        console.log('CRITICAL: About to get locations');
+                        const locations = locationName ? 
+                            [{ name: locationName }] : 
+                            await getLocationsForUser(decoded.userId);
+                        
+                        console.log('CRITICAL: Locations retrieved', { 
+                            locationCount: locations.length 
+                        });
+                
+                        console.log('CRITICAL: About to get weather updates');
+                        const weatherData = await getWeatherUpdates(locations);
+                        
+                        console.log('CRITICAL: Weather data retrieved', { 
+                            weatherDataLength: weatherData.length 
+                        });
+                
+                        console.log('CRITICAL: About to process weather data');
+                        const processedData = await processWeatherData(weatherData);
+                        
+                        console.log('CRITICAL: Weather data processed', { 
+                            processedDataLength: processedData.length 
+                        });
+                
+                        console.log('CRITICAL: About to send message to client');
                         await sendMessageToClient(connectionId, {
-                            type: 'error',
-                            message: 'Error fetching weather data',
-                            details: error.message
+                            type: 'weatherUpdate',
+                            data: processedData,
+                            timestamp: new Date().toISOString()
                         });
-                    } catch (sendError) {
-                        logWithTiming('Error sending error message', {
-                            name: sendError.name,
-                            message: sendError.message
+                        
+                        console.log('CRITICAL: Message sent to client successfully');
+                
+                        return { 
+                            statusCode: 200, 
+                            body: JSON.stringify({ message: 'Weather data sent' }) 
+                        };
+                    } catch (error) {
+                        console.error('CRITICAL: Detailed Error in getWeather', {
+                            name: error.name,
+                            message: error.message,
+                            stack: error.stack
                         });
+                        
+                        return { 
+                            statusCode: 500, 
+                            body: JSON.stringify({ 
+                                message: 'Internal server error',
+                                error: error.message
+                            }) 
+                        };
                     }
-
-                    return { 
-                        statusCode: 500, 
-                        body: JSON.stringify({ 
-                            message: 'Internal server error',
-                            error: error.message
-                        }) 
-                    };
                 }
-            }
 
             // Similar detailed logging can be added to subscribe and unsubscribe routes...
 
