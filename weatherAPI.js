@@ -36,12 +36,28 @@ const formatWeatherData = (weatherData, location) => {
 };
 
 const getLocationQuery = (location) => {
+    // Check for coordinate variations with fallback to table schema
     if (location.latitude && location.longitude) {
         return `${location.latitude},${location.longitude}`;
     }
-    if (location.name) {
-        return location.name;
+    
+    // Check for alternative coordinate formats
+    if ((location.lat && location.lon) || 
+        (location.coordinates && location.coordinates.lat && location.coordinates.lon)) {
+        return `${location.lat || location.coordinates.lat},${location.lon || location.coordinates.lon}`;
     }
+    
+    // Check for name variations
+    if (location.name || location.city_name) {
+        // If both city and country are available, combine them for more precise querying
+        if (location.city_name && location.country_code) {
+            return `${location.city_name}, ${location.country_code}`;
+        }
+        return location.name || location.city_name;
+    }
+    
+    // Detailed error logging
+    console.error('Invalid location object received:', location);
     throw new Error('Location must have either coordinates or name');
 };
 
