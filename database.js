@@ -28,10 +28,11 @@ const dbConfig = {
         queueLimit: 0,
         enableKeepAlive: true,
         keepAliveInitialDelay: 0,
-        // Add timeouts
-        connectTimeout: 10000, // 10 seconds
-        acquireTimeout: 10000, // 10 seconds
-        timeout: 10000 // 10 seconds query timeout
+        // Add valid mysql2 timeouts
+        connectTimeout: 10000, // Connection timeout in milliseconds
+        waitForConnections: true, // Whether to wait for connections to be available
+        maxIdle: 10, // Max idle connections in the pool
+        idleTimeout: 60000, // How long a connection can be idle before being removed
     },
     replica: {
         host: process.env.DB_READ_REPLICA_HOST,
@@ -43,10 +44,11 @@ const dbConfig = {
         queueLimit: 0,
         enableKeepAlive: true,
         keepAliveInitialDelay: 0,
-        // Add timeouts
-        connectTimeout: 10000, // 10 seconds
-        acquireTimeout: 10000, // 10 seconds
-        timeout: 10000 // 10 seconds query timeout
+        // Add valid mysql2 timeouts
+        connectTimeout: 10000, // Connection timeout in milliseconds
+        waitForConnections: true, // Whether to wait for connections to be available
+        maxIdle: 10, // Max idle connections in the pool
+        idleTimeout: 60000, // How long a connection can be idle before being removed
     }
 };
 
@@ -56,26 +58,61 @@ const pools = {
     replica: mysql.createPool(dbConfig.replica)
 };
 
+// Helper function for retrying operations with timeout
+const retryOperation = async (operation, maxRetries = 3, timeout = 10000) => {
+    let lastError;
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error(`Operation timed out after ${timeout}ms`)), timeout)
+            );
+            
+            return await Promise.race([operation(), timeoutPromise]);
+        } catch (error) {
+            lastError = error;
+            console.warn(`Database operation attempt ${i + 1}/${maxRetries} failed:`, {
+                error: error.message,
+                code: error.code,
+                attempt: i + 1,
+                maxRetries,
+                timestamp: new Date().toISOString()
+            });
+            
+            if (i < maxRetries - 1) {
+                // Exponential backoff: 100ms, 200ms, 400ms...
+                await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 100));
+            }
+        }
+    }
+    throw lastError;
+};
+
 const getConnection = async (operation = 'read') => {
     const pool = operation === 'read' ? pools.replica : pools.primary;
     try {
-        // Add timeout to getConnection
-        const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Database connection timeout')), 10000);
+        console.log('Attempting to get database connection:', {
+            operation,
+            host: operation === 'read' ? process.env.DB_READ_REPLICA_HOST : process.env.DB_PRIMARY_HOST,
+            timestamp: new Date().toISOString()
         });
 
-        const connection = await Promise.race([
-            pool.getConnection(),
-            timeoutPromise
-        ]);
+        const connection = await retryOperation(
+            () => pool.getConnection(),
+            3,  // max retries
+            10000 // 10 second timeout
+        );
 
-        // Test the connection with timeout
-        await Promise.race([
-            connection.query('SELECT 1'),
-            new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('Database test query timeout')), 5000);
-            })
-        ]);
+        // Test the connection
+        await retryOperation(
+            () => connection.query('SELECT 1'),
+            2,  // fewer retries for test query
+            5000 // 5 second timeout
+        );
+
+        console.log('Successfully established database connection:', {
+            operation,
+            timestamp: new Date().toISOString()
+        });
 
         return connection;
     } catch (error) {
@@ -96,16 +133,25 @@ const getConnection = async (operation = 'read') => {
 const getLocationsForUser = async (userId) => {
     let connection;
     try {
-        connection = await getConnection('read');
-        
-        // Add timeout to the query execution
-        const queryPromise = connection.execute(queries.getUserLocations, [userId]);
-        const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Database query timeout')), 10000);
+        console.log('Attempting to get locations for user:', {
+            userId,
+            timestamp: new Date().toISOString()
         });
 
-        const [rows] = await Promise.race([queryPromise, timeoutPromise]);
+        connection = await getConnection('read');
         
+        const [rows] = await retryOperation(
+            () => connection.execute(queries.getUserLocations, [userId]),
+            3,  // max retries
+            10000 // 10 second timeout
+        );
+        
+        console.log('Successfully retrieved user locations:', {
+            userId,
+            locationCount: rows.length,
+            timestamp: new Date().toISOString()
+        });
+
         // Parse any JSON weather data from cache
         return rows.map(row => ({
             ...row,
@@ -128,19 +174,30 @@ const getLocationsForUser = async (userId) => {
 const updateWeatherCache = async (locationData) => {
     let connection;
     try {
-        connection = await getConnection('write');
         const { city_name, country_code, weather_data } = locationData;
         
-        // Add timeout to the query execution
-        const queryPromise = connection.execute(
-            queries.updateWeatherCache,
-            [city_name, country_code, JSON.stringify(weather_data)]
-        );
-        const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Database query timeout')), 10000);
+        console.log('Attempting to update weather cache:', {
+            city: city_name,
+            country: country_code,
+            timestamp: new Date().toISOString()
         });
 
-        await Promise.race([queryPromise, timeoutPromise]);
+        connection = await getConnection('write');
+        
+        await retryOperation(
+            () => connection.execute(
+                queries.updateWeatherCache,
+                [city_name, country_code, JSON.stringify(weather_data)]
+            ),
+            3,  // max retries
+            10000 // 10 second timeout
+        );
+
+        console.log('Successfully updated weather cache:', {
+            city: city_name,
+            country: country_code,
+            timestamp: new Date().toISOString()
+        });
     } catch (error) {
         console.error('Error updating weather cache:', {
             error: error.message,
@@ -158,41 +215,52 @@ const updateWeatherCache = async (locationData) => {
 const addUserLocation = async (userId, locationData) => {
     let connection;
     try {
-        connection = await getConnection('write');
-        
-        // Start transaction
-        await connection.beginTransaction();
-
         const { city_name, country_code, latitude, longitude } = locationData;
         
-        // Add timeout to the transaction operations
-        const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Database transaction timeout')), 15000);
+        console.log('Attempting to add user location:', {
+            userId,
+            city: city_name,
+            country: country_code,
+            timestamp: new Date().toISOString()
         });
 
+        connection = await getConnection('write');
+        await connection.beginTransaction();
+
         // Check if location already exists for user
-        const [existing] = await Promise.race([
-            connection.execute(
+        const [existing] = await retryOperation(
+            () => connection.execute(
                 queries.checkLocationExists,
                 [userId, city_name, country_code]
             ),
-            timeoutPromise
-        ]);
+            2,  // fewer retries for check
+            5000 // shorter timeout for check
+        );
 
         if (existing.length > 0) {
             throw new Error('Location already exists for user');
         }
 
         // Add location
-        const [result] = await Promise.race([
-            connection.execute(
+        const [result] = await retryOperation(
+            () => connection.execute(
                 queries.addUserLocation,
                 [userId, city_name, country_code, latitude, longitude]
             ),
-            timeoutPromise
-        ]);
+            3,  // max retries
+            10000 // 10 second timeout
+        );
 
         await connection.commit();
+
+        console.log('Successfully added user location:', {
+            userId,
+            city: city_name,
+            country: country_code,
+            locationId: result.insertId,
+            timestamp: new Date().toISOString()
+        });
+
         return result.insertId;
     } catch (error) {
         if (connection) {
@@ -215,18 +283,28 @@ const addUserLocation = async (userId, locationData) => {
 const removeUserLocation = async (userId, locationId) => {
     let connection;
     try {
-        connection = await getConnection('write');
-        
-        // Add timeout to the query execution
-        const queryPromise = connection.execute(
-            queries.removeUserLocation,
-            [userId, locationId]
-        );
-        const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Database query timeout')), 10000);
+        console.log('Attempting to remove user location:', {
+            userId,
+            locationId,
+            timestamp: new Date().toISOString()
         });
 
-        await Promise.race([queryPromise, timeoutPromise]);
+        connection = await getConnection('write');
+        
+        await retryOperation(
+            () => connection.execute(
+                queries.removeUserLocation,
+                [userId, locationId]
+            ),
+            3,  // max retries
+            10000 // 10 second timeout
+        );
+
+        console.log('Successfully removed user location:', {
+            userId,
+            locationId,
+            timestamp: new Date().toISOString()
+        });
     } catch (error) {
         console.error('Error removing user location:', {
             error: error.message,
@@ -245,25 +323,34 @@ const removeUserLocation = async (userId, locationId) => {
 const updateLocationOrder = async (userId, locationOrders) => {
     let connection;
     try {
+        console.log('Attempting to update location order:', {
+            userId,
+            locationCount: locationOrders.length,
+            timestamp: new Date().toISOString()
+        });
+
         connection = await getConnection('write');
         await connection.beginTransaction();
 
-        // Add timeout for the entire transaction
-        const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Database transaction timeout')), 15000);
-        });
-
-        const updatePromise = (async () => {
-            for (const { locationId, order } of locationOrders) {
-                await connection.execute(
+        // Update each location's order with retry
+        for (const { locationId, order } of locationOrders) {
+            await retryOperation(
+                () => connection.execute(
                     queries.updateLocationOrder,
                     [order, locationId, userId]
-                );
-            }
-            await connection.commit();
-        })();
+                ),
+                2,  // fewer retries per update
+                5000 // shorter timeout per update
+            );
+        }
 
-        await Promise.race([updatePromise, timeoutPromise]);
+        await connection.commit();
+
+        console.log('Successfully updated location order:', {
+            userId,
+            locationCount: locationOrders.length,
+            timestamp: new Date().toISOString()
+        });
     } catch (error) {
         if (connection) {
             await connection.rollback();
@@ -286,18 +373,24 @@ const updateLocationOrder = async (userId, locationOrders) => {
 const cleanupOldData = async () => {
     let connection;
     try {
-        connection = await getConnection('write');
-        
-        // Add timeout to cleanup operations
-        const cleanupPromise = Promise.all([
-            connection.execute(queries.cleanupWeatherCache),
-            connection.execute(queries.cleanupSubscriptions)
-        ]);
-        const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Database cleanup timeout')), 20000);
+        console.log('Starting database cleanup:', {
+            timestamp: new Date().toISOString()
         });
 
-        await Promise.race([cleanupPromise, timeoutPromise]);
+        connection = await getConnection('write');
+        
+        await retryOperation(
+            async () => {
+                await connection.execute(queries.cleanupWeatherCache);
+                await connection.execute(queries.cleanupSubscriptions);
+            },
+            3,  // max retries
+            20000 // longer timeout for cleanup
+        );
+
+        console.log('Successfully completed database cleanup:', {
+            timestamp: new Date().toISOString()
+        });
     } catch (error) {
         console.error('Error cleaning up old data:', {
             error: error.message,
