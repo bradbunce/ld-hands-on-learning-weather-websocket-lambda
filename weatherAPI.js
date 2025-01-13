@@ -9,15 +9,14 @@ if (!WEATHER_API_KEY) {
 
 const formatWeatherData = (weatherData, location) => {
     try {
+        // Explicitly check for required properties
+        if (!location.city_name) {
+            throw new Error('Location must have city_name');
+        }
+
         return {
-            // Try multiple variations of location name
-            locationName: location.city_name || location.name || 
-                          weatherData.location.name || 
-                          (location.latitude && location.longitude 
-                           ? `${location.latitude},${location.longitude}` 
-                           : 'Unknown Location'),
+            locationName: location.city_name,
             locationId: location.location_id,
-            name: location.city_name || location.name || weatherData.location.name, // Add this line
             temperature: weatherData.current.temp_c,
             condition: weatherData.current.condition.text,
             humidity: weatherData.current.humidity,
@@ -38,35 +37,27 @@ const formatWeatherData = (weatherData, location) => {
             weatherData
         });
         throw new Error('Invalid weather data format received from API');
+    }
 };
 
 const getLocationQuery = (location) => {
     // Check for coordinate variations, converting string to number
     const lat = location.latitude 
         ? (typeof location.latitude === 'string' ? parseFloat(location.latitude) : location.latitude)
-        : (location.lat ? parseFloat(location.lat) : null);
+        : null;
     
     const lon = location.longitude 
         ? (typeof location.longitude === 'string' ? parseFloat(location.longitude) : location.longitude)
-        : (location.lon ? parseFloat(location.lon) : null);
+        : null;
 
     // Comprehensive coordinates check
     if (lat && lon) {
         return `${lat},${lon}`;
     }
     
-    // Check for coordinate-like nested object
-    if (location.coordinates && location.coordinates.lat && location.coordinates.lon) {
-        return `${location.coordinates.lat},${location.coordinates.lon}`;
-    }
-    
-    // Check for name variations with optional country code for precision
-    if (location.name || location.city_name) {
-        // Prioritize city_name and country_code if both are available
-        if (location.city_name && location.country_code) {
-            return `${location.city_name}, ${location.country_code}`;
-        }
-        return location.name || location.city_name;
+    // Check for name variations with country code
+    if (location.city_name && location.country_code) {
+        return `${location.city_name}, ${location.country_code}`;
     }
     
     // Detailed error logging
@@ -124,32 +115,27 @@ const getWeatherForLocation = async (location) => {
 };
 
 const getWeatherUpdates = async (locations) => {
-    // Extremely detailed logging of input locations
-    console.log('Locations FULL DETAILS before processing:', JSON.stringify(locations, null, 2));
-    console.log('Location types:', locations.map(loc => Object.keys(loc)));
+    console.log('Locations before processing:', JSON.stringify(locations, null, 2));
 
     if (!Array.isArray(locations) || locations.length === 0) {
         console.warn('No locations provided for weather updates');
         return [];
     }
 
+    console.log('Fetching weather updates for locations:', locations);
+
     // Add overall timeout for all weather updates
-    const weatherPromises = locations.map(location => {
-        console.log('Processing individual location:', JSON.stringify(location, null, 2));
-        return getWeatherForLocation(location)
+    const weatherPromises = locations.map(location => 
+        getWeatherForLocation(location)
             .catch(error => {
-                console.error('FULL Weather fetch error for location:', {
-                    location: JSON.stringify(location, null, 2),
+                console.error('Weather fetch error for location:', {
+                    location,
                     errorMessage: error.message,
                     errorStack: error.stack
                 });
-                return {
-                    locationName: location.name || location.city_name || getLocationQuery(location),
-                    error: error.message,
-                    timestamp: new Date().toISOString()
-                };
-            });
-    });
+                throw error; // Re-throw to prevent silent failures
+            })
+    );
 
     // Race between all weather updates and a global timeout
     const results = await Promise.race([
@@ -158,16 +144,6 @@ const getWeatherUpdates = async (locations) => {
             setTimeout(() => reject(new Error('Weather updates global timeout')), 20000)
         )
     ]);
-
-    // Detailed logging of results
-    console.log('Weather updates results:', JSON.stringify(results, null, 2));
-
-    // Log any errors that occurred
-    results.forEach(result => {
-        if (result.error) {
-            console.error('Weather fetch failed for location:', result);
-        }
-    });
 
     return results;
 };
