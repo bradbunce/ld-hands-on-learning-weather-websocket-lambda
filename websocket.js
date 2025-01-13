@@ -16,11 +16,46 @@ const apiGatewayManagementApi = new AWS.ApiGatewayManagementApi({
 
 const SERVICE_TYPE = 'weather-updates';
 
+// Helper function for retrying operations
+const retryOperation = async (operation, maxRetries = 3, timeout = 10000) => {
+    let lastError;
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error(`Operation timed out after ${timeout}ms`)), timeout)
+            );
+            
+            return await Promise.race([operation(), timeoutPromise]);
+        } catch (error) {
+            lastError = error;
+            console.warn(`Attempt ${i + 1}/${maxRetries} failed:`, {
+                error: error.message,
+                code: error.code,
+                statusCode: error.statusCode,
+                attempt: i + 1,
+                maxRetries
+            });
+            
+            if (i < maxRetries - 1) {
+                // Exponential backoff: 100ms, 200ms, 400ms...
+                await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 100));
+            }
+        }
+    }
+    throw lastError;
+};
+
 const storeConnection = async (connectionId, clientId) => {
+    console.log('Attempting to store connection:', {
+        connectionId,
+        clientId,
+        table: CONNECTIONS_TABLE,
+        timestamp: new Date().toISOString()
+    });
+
     try {
-        // Add timeout to DynamoDB operation
-        await Promise.race([
-            dynamoDB.put({
+        await retryOperation(
+            () => dynamoDB.put({
                 TableName: CONNECTIONS_TABLE,
                 Item: {
                     connectionId: connectionId,
@@ -29,77 +64,141 @@ const storeConnection = async (connectionId, clientId) => {
                     timestamp: Date.now()
                 }
             }).promise(),
-            new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('DynamoDB put timeout')), 5000)
-            )
-        ]);
+            3,  // max retries
+            15000 // 15 second timeout
+        );
+
+        console.log('Successfully stored connection:', {
+            connectionId,
+            clientId,
+            timestamp: new Date().toISOString()
+        });
     } catch (error) {
-        console.error('Error storing connection in DynamoDB:', error);
+        console.error('Failed to store connection after retries:', {
+            error: error.message,
+            code: error.code,
+            statusCode: error.statusCode,
+            connectionId,
+            clientId,
+            table: CONNECTIONS_TABLE,
+            timestamp: new Date().toISOString()
+        });
         throw error;
     }
 };
 
 const removeConnection = async (connectionId) => {
+    console.log('Attempting to remove connection:', {
+        connectionId,
+        table: CONNECTIONS_TABLE,
+        timestamp: new Date().toISOString()
+    });
+
     try {
-        // Add timeout to DynamoDB operation
-        await Promise.race([
-            dynamoDB.delete({
+        await retryOperation(
+            () => dynamoDB.delete({
                 TableName: CONNECTIONS_TABLE,
                 Key: { 
                     connectionId: connectionId,
                     serviceType: SERVICE_TYPE
                 }
             }).promise(),
-            new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('DynamoDB delete timeout')), 5000)
-            )
-        ]);
+            3,  // max retries
+            15000 // 15 second timeout
+        );
+
+        console.log('Successfully removed connection:', {
+            connectionId,
+            timestamp: new Date().toISOString()
+        });
     } catch (error) {
-        console.error('Error removing connection from DynamoDB:', error);
+        console.error('Failed to remove connection after retries:', {
+            error: error.message,
+            code: error.code,
+            statusCode: error.statusCode,
+            connectionId,
+            table: CONNECTIONS_TABLE,
+            timestamp: new Date().toISOString()
+        });
         throw error;
     }
 };
 
 const getActiveConnections = async () => {
+    console.log('Attempting to get active connections:', {
+        table: CONNECTIONS_TABLE,
+        timestamp: new Date().toISOString()
+    });
+
     try {
-        // Add timeout to DynamoDB operation
-        const { Items } = await Promise.race([
-            dynamoDB.query({
+        const { Items } = await retryOperation(
+            () => dynamoDB.query({
                 TableName: CONNECTIONS_TABLE,
                 KeyConditionExpression: 'serviceType = :serviceType',
                 ExpressionAttributeValues: {
                     ':serviceType': SERVICE_TYPE
                 }
             }).promise(),
-            new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('DynamoDB query timeout')), 5000)
-            )
-        ]);
+            3,  // max retries
+            15000 // 15 second timeout
+        );
+
+        console.log('Successfully retrieved active connections:', {
+            connectionCount: Items.length,
+            timestamp: new Date().toISOString()
+        });
+
         return Items;
     } catch (error) {
-        console.error('Error getting active connections from DynamoDB:', error);
+        console.error('Failed to get active connections after retries:', {
+            error: error.message,
+            code: error.code,
+            statusCode: error.statusCode,
+            table: CONNECTIONS_TABLE,
+            timestamp: new Date().toISOString()
+        });
         throw error;
     }
 };
 
 const sendMessageToClient = async (connectionId, payload) => {
+    console.log('Attempting to send message to client:', {
+        connectionId,
+        payloadType: payload.type,
+        timestamp: new Date().toISOString()
+    });
+
     try {
-        // Add timeout to WebSocket API call
-        await Promise.race([
-            apiGatewayManagementApi.postToConnection({
+        await retryOperation(
+            () => apiGatewayManagementApi.postToConnection({
                 ConnectionId: connectionId,
                 Data: JSON.stringify(payload)
             }).promise(),
-            new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('WebSocket API timeout')), 5000)
-            )
-        ]);
+            3,  // max retries
+            15000 // 15 second timeout
+        );
+
+        console.log('Successfully sent message to client:', {
+            connectionId,
+            payloadType: payload.type,
+            timestamp: new Date().toISOString()
+        });
     } catch (error) {
         if (error.statusCode === 410) {
-            console.log('Connection stale, removing:', connectionId);
+            console.log('Connection stale, removing:', {
+                connectionId,
+                timestamp: new Date().toISOString()
+            });
             await removeConnection(connectionId);
         } else {
-            console.error('Error sending message to client:', error);
+            console.error('Failed to send message to client after retries:', {
+                error: error.message,
+                code: error.code,
+                statusCode: error.statusCode,
+                connectionId,
+                payloadType: payload.type,
+                timestamp: new Date().toISOString()
+            });
             throw error;
         }
     }
@@ -142,10 +241,16 @@ const verifyToken = (token) => {
 };
 
 const updateConnectionLocation = async (connectionId, locationName) => {
+    console.log('Attempting to update connection location:', {
+        connectionId,
+        locationName,
+        table: CONNECTIONS_TABLE,
+        timestamp: new Date().toISOString()
+    });
+
     try {
-        // Add timeout to DynamoDB operation
-        await Promise.race([
-            dynamoDB.update({
+        await retryOperation(
+            () => dynamoDB.update({
                 TableName: CONNECTIONS_TABLE,
                 Key: { 
                     connectionId: connectionId,
@@ -156,12 +261,25 @@ const updateConnectionLocation = async (connectionId, locationName) => {
                     ':locationName': locationName
                 }
             }).promise(),
-            new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('DynamoDB update timeout')), 5000)
-            )
-        ]);
+            3,  // max retries
+            15000 // 15 second timeout
+        );
+
+        console.log('Successfully updated connection location:', {
+            connectionId,
+            locationName,
+            timestamp: new Date().toISOString()
+        });
     } catch (error) {
-        console.error('Error updating connection location:', error);
+        console.error('Failed to update connection location after retries:', {
+            error: error.message,
+            code: error.code,
+            statusCode: error.statusCode,
+            connectionId,
+            locationName,
+            table: CONNECTIONS_TABLE,
+            timestamp: new Date().toISOString()
+        });
         throw error;
     }
 };
