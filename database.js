@@ -31,7 +31,7 @@ const dbConfig = {
         enableKeepAlive: true,
         keepAliveInitialDelay: 0,
         // Connection timeout
-        connectTimeout: 10000, // Connection timeout in milliseconds
+        connectTimeout: 20000, // Connection timeout in milliseconds
     },
     replica: {
         host: process.env.DB_READ_REPLICA_HOST,
@@ -46,7 +46,7 @@ const dbConfig = {
         enableKeepAlive: true,
         keepAliveInitialDelay: 0,
         // Connection timeout
-        connectTimeout: 10000, // Connection timeout in milliseconds
+        connectTimeout: 20000, // Connection timeout in milliseconds
     }
 };
 
@@ -85,26 +85,67 @@ const retryOperation = async (operation, maxRetries = 3, timeout = 10000) => {
     throw lastError;
 };
 
+// Validate table existence
+const validateTables = async (connection) => {
+    console.log('Validating database tables...');
+    
+    try {
+        // Check if tables exist
+        const [rows] = await connection.query(`
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = ? 
+            AND table_name IN ('user_locations', 'weather_cache', 'websocket_subscriptions')
+        `, [process.env.DB_NAME]);
+
+        const existingTables = rows.map(row => row.table_name.toLowerCase());
+        console.log('Existing tables:', existingTables);
+
+        // Create missing tables if needed
+        if (!existingTables.includes('user_locations')) {
+            console.log('Creating user_locations table...');
+            await connection.query(tableQueries.createUserLocationsTable);
+        }
+        if (!existingTables.includes('weather_cache')) {
+            console.log('Creating weather_cache table...');
+            await connection.query(tableQueries.createWeatherCacheTable);
+        }
+        if (!existingTables.includes('websocket_subscriptions')) {
+            console.log('Creating websocket_subscriptions table...');
+            await connection.query(tableQueries.createWebSocketSubscriptionsTable);
+        }
+    } catch (error) {
+        console.error('Error validating tables:', error);
+        throw error;
+    }
+};
+
 const getConnection = async (operation = 'read') => {
     const pool = operation === 'read' ? pools.replica : pools.primary;
     try {
         console.log('Attempting to get database connection:', {
             operation,
             host: operation === 'read' ? process.env.DB_READ_REPLICA_HOST : process.env.DB_PRIMARY_HOST,
+            database: process.env.DB_NAME,
             timestamp: new Date().toISOString()
         });
 
         const connection = await retryOperation(
             () => pool.getConnection(),
             3,  // max retries
-            10000 // 10 second timeout
+            20000 // 20 second timeout
         );
 
-        // Test the connection
+        // Test the connection and validate tables
         await retryOperation(
-            () => connection.query('SELECT 1'),
-            2,  // fewer retries for test query
-            5000 // 5 second timeout
+            async () => {
+                await connection.query('SELECT 1');
+                if (operation === 'write') {  // Only validate on write connections
+                    await validateTables(connection);
+                }
+            },
+            2,  // fewer retries for test
+            10000 // 10 second timeout
         );
 
         console.log('Successfully established database connection:', {
@@ -138,10 +179,17 @@ const getLocationsForUser = async (userId) => {
 
         connection = await getConnection('read');
         
+        // Log the query and parameters
+        console.log('Executing getUserLocations query:', {
+            query: queries.getUserLocations,
+            params: [userId],
+            timestamp: new Date().toISOString()
+        });
+
         const [rows] = await retryOperation(
             () => connection.execute(queries.getUserLocations, [userId]),
             3,  // max retries
-            10000 // 10 second timeout
+            20000 // 20 second timeout
         );
         
         console.log('Successfully retrieved user locations:', {
@@ -325,47 +373,6 @@ const updateLocationOrder = async (userId, locationOrders) => {
             userId,
             locationCount: locationOrders.length,
             timestamp: new Date().toISOString()
-        });
-
-        connection = await getConnection('write');
-        await connection.beginTransaction();
-
-        // Update each location's order with retry
-        for (const { locationId, order } of locationOrders) {
-            await retryOperation(
-                () => connection.execute(
-                    queries.updateLocationOrder,
-                    [order, locationId, userId]
-                ),
-                2,  // fewer retries per update
-                5000 // shorter timeout per update
-            );
-        }
-
-        await connection.commit();
-
-        console.log('Successfully updated location order:', {
-            userId,
-            locationCount: locationOrders.length,
-            timestamp: new Date().toISOString()
-        });
-    } catch (error) {
-        if (connection) {
-            await connection.rollback();
-        }
-        console.error('Error updating location order:', {
-            error: error.message,
-            userId,
-            locationOrders,
-            timestamp: new Date().toISOString()
-        });
-        throw error;
-    } finally {
-        if (connection) {
-            connection.release();
-        }
-    }
-};
 
 // Cleanup function to be run periodically
 const cleanupOldData = async () => {

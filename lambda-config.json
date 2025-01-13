@@ -12,8 +12,8 @@
             "JWT_SECRET": ""
         }
     },
-    "MemorySize": 512,
-    "Timeout": 60,
+    "MemorySize": 1024,
+    "Timeout": 120,
     "Runtime": "nodejs20.x",
     "Handler": "index.handler"
 }
