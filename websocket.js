@@ -1,6 +1,11 @@
 const AWS = require('aws-sdk');
 const jwt = require('jsonwebtoken');
-const dynamoDB = new AWS.DynamoDB.DocumentClient();
+const dynamoDB = new AWS.DynamoDB.DocumentClient({
+    httpOptions: {
+        timeout: 15000 // 15 seconds
+    },
+    maxRetries: 3
+});
 
 const CONNECTIONS_TABLE = 'brad-weather-app-websocket-connections';
 const ENDPOINT = process.env.WEBSOCKET_API_ENDPOINT;
@@ -11,7 +16,11 @@ if (!ENDPOINT) {
 
 const apiGatewayManagementApi = new AWS.ApiGatewayManagementApi({
     apiVersion: '2018-11-29',
-    endpoint: ENDPOINT
+    endpoint: ENDPOINT,
+    httpOptions: {
+        timeout: 15000 // 15 seconds
+    },
+    maxRetries: 3
 });
 
 const SERVICE_TYPE = 'weather-updates';
@@ -55,29 +64,7 @@ const storeConnection = async (connectionId, clientId) => {
     });
 
     try {
-        // First try to get existing connection to see if it exists
-        const existingConnection = await retryOperation(
-            () => dynamoDB.get({
-                TableName: CONNECTIONS_TABLE,
-                Key: {
-                    connectionID: connectionId,
-                    serviceType: SERVICE_TYPE
-                }
-            }).promise(),
-            2,  // fewer retries for check
-            5000 // shorter timeout for check
-        );
-
-        // Log the existing connection if found
-        if (existingConnection.Item) {
-            console.log('Found existing connection:', {
-                connectionId,
-                existingData: existingConnection.Item,
-                timestamp: new Date().toISOString()
-            });
-        }
-
-        // Store the connection
+        // Store the connection directly
         await retryOperation(
             () => dynamoDB.put({
                 TableName: CONNECTIONS_TABLE,
