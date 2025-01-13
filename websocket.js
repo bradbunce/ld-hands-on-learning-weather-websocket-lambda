@@ -25,7 +25,8 @@ if (!ENDPOINT) {
 const apiGateway = new ApiGatewayManagementApiClient({
     endpoint: ENDPOINT,
     maxAttempts: 3,
-    requestTimeout: 5000
+    requestTimeout: 30000,  // Increase to 30 seconds
+    connectTimeout: 10000   // Add explicit connect timeout
 });
 
 const storeConnection = async (connectionId, userId) => {
