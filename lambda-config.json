@@ -8,11 +8,12 @@
             "DB_PASSWORD": "",
             "DB_NAME": "",
             "WEATHER_API_KEY": "",
-            "WEBSOCKET_API_ENDPOINT": ""
+            "WEBSOCKET_API_ENDPOINT": "",
+            "JWT_SECRET": ""
         }
     },
-    "MemorySize": 128,
-    "Timeout": 30,
+    "MemorySize": 512,
+    "Timeout": 60,
     "Runtime": "nodejs20.x",
     "Handler": "index.handler"
 }

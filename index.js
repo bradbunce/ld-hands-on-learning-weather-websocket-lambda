@@ -67,6 +67,111 @@ exports.handler = async (event) => {
                         storageTime: storeEndTime - storeStartTime
                     });
 
+                    try {
+                        // Get user's locations
+                        logWithTiming('Getting initial locations for user', {
+                            userId: decoded.userId,
+                            step: 'start'
+                        });
+
+                        const locations = await getLocationsForUser(decoded.userId);
+                        
+                        logWithTiming('Retrieved locations', { 
+                            userId: decoded.userId,
+                            locationCount: locations.length,
+                            locations: locations.map(loc => ({
+                                id: loc.location_id,
+                                name: loc.city_name,
+                                country: loc.country_code
+                            }))
+                        });
+
+                        if (locations.length > 0) {
+                            // Get weather data for locations
+                            logWithTiming('Getting initial weather data', {
+                                step: 'weather_fetch_start',
+                                locationCount: locations.length
+                            });
+
+                            const weatherData = await getWeatherUpdates(locations);
+                            
+                            logWithTiming('Retrieved weather data', { 
+                                step: 'weather_fetch_complete',
+                                weatherDataCount: weatherData.length,
+                                weatherData: weatherData.map(data => ({
+                                    locationName: data.locationName,
+                                    hasError: !!data.error,
+                                    error: data.error
+                                }))
+                            });
+
+                            // Process and send weather data
+                            logWithTiming('Processing weather data', {
+                                step: 'processing_start'
+                            });
+
+                            const processedData = await processWeatherData(weatherData);
+                            
+                            logWithTiming('Processed weather data', { 
+                                step: 'processing_complete',
+                                processedDataCount: processedData.length,
+                                summary: processedData.map(data => ({
+                                    locationName: data.name,
+                                    hasError: !!data.error
+                                }))
+                            });
+
+                            logWithTiming('Sending data to client', {
+                                step: 'send_start',
+                                dataSize: JSON.stringify(processedData).length
+                            });
+
+                            await sendMessageToClient(connectionId, {
+                                type: 'weatherUpdate',
+                                data: processedData,
+                                timestamp: new Date().toISOString()
+                            });
+
+                            logWithTiming('Sent initial weather data to client', {
+                                step: 'send_complete'
+                            });
+                        } else {
+                            logWithTiming('No locations found for user', {
+                                userId: decoded.userId
+                            });
+
+                            // Send empty state notification to client
+                            await sendMessageToClient(connectionId, {
+                                type: 'noLocations',
+                                message: 'No locations found. Please add a location to get weather updates.',
+                                timestamp: new Date().toISOString()
+                            });
+                        }
+                    } catch (error) {
+                        // Log detailed error but don't fail the connection
+                        logWithTiming('Error sending initial weather data', {
+                            error: error.message,
+                            code: error.code,
+                            type: error.constructor.name,
+                            stack: error.stack,
+                            userId: decoded.userId
+                        });
+
+                        // Notify client of the error
+                        try {
+                            await sendMessageToClient(connectionId, {
+                                type: 'error',
+                                message: 'Failed to fetch initial weather data. Please try refreshing.',
+                                timestamp: new Date().toISOString()
+                            });
+                        } catch (sendError) {
+                            logWithTiming('Failed to send error message to client', {
+                                error: sendError.message,
+                                originalError: error.message
+                            });
+                        }
+                    }
+
                     return { 
                         statusCode: 200, 
                         body: JSON.stringify({ 
