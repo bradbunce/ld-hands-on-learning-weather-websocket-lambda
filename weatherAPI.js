@@ -17,7 +17,7 @@ const formatWeatherData = (weatherData, location) => {
         return {
             locationName: location.city_name,
             locationId: location.location_id,
-            temperature: weatherData.current.temp_c,
+            temperature: weatherData.current.temp_f,
             condition: weatherData.current.condition.text,
             humidity: weatherData.current.humidity,
             windSpeed: weatherData.current.wind_kph,
