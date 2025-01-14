@@ -20,7 +20,7 @@ const formatWeatherData = (weatherData, location) => {
             temperature: weatherData.current.temp_f,
             condition: weatherData.current.condition.text,
             humidity: weatherData.current.humidity,
-            windSpeed: weatherData.current.wind_kph,
+            windSpeed: weatherData.current.wind_mph,
             timestamp: new Date().toISOString(),
             // Additional data that might be useful
             feelsLike: weatherData.current.feelslike_c,
