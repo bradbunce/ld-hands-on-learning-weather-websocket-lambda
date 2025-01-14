@@ -213,7 +213,7 @@ exports.handler = async (event) => {
         console.log("CRITICAL: Entering getWeather route");
 
         const messageData = JSON.parse(event.body);
-        const { token, locationName } = messageData;
+        const { token, locationName, countryCode } = messageData;
 
         console.log("CRITICAL: Message Data Received", {
           locationNamePresent: !!locationName,
@@ -242,9 +242,10 @@ exports.handler = async (event) => {
           }
 
           console.log("CRITICAL: About to get locations");
-          const locations = locationName
-            ? [{ name: locationName }]
-            : await getLocationsForUser(decoded.userId);
+          const locations = locationName ? [{
+            city_name: locationName,
+            country_code: countryCode
+          }] : await getLocationsForUser(decoded.userId);
 
           console.log("CRITICAL: Locations retrieved", {
             locationCount: locations.length,
