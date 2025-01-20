@@ -241,6 +241,53 @@ const updateConnectionLocation = async (connectionId, locationName) => {
     }
 };
 
+const cleanupUserConnections = async (userId) => {
+    console.log('Cleaning up connections for user:', { userId });
+    
+    try {
+        // Query for all connections belonging to this user
+        const { Items } = await dynamo.send(new ScanCommand({
+            TableName: CONFIG.CONNECTIONS_TABLE,
+            FilterExpression: 'userId = :userId',
+            ExpressionAttributeValues: {
+                ':userId': userId
+            }
+        }));
+
+        if (!Items?.length) {
+            console.log('No connections found for user:', { userId });
+            return;
+        }
+
+        console.log('Found connections to cleanup:', { 
+            userId, 
+            connectionCount: Items.length,
+            connections: Items.map(item => item.connectionId)
+        });
+
+        // Remove each connection
+        const deletePromises = Items.map(item => 
+            dynamo.send(new DeleteCommand({
+                TableName: CONFIG.CONNECTIONS_TABLE,
+                Key: { connectionId: item.connectionId }
+            }))
+        );
+
+        await Promise.all(deletePromises);
+
+        console.log('Successfully cleaned up user connections:', {
+            userId,
+            cleanedCount: Items.length
+        });
+    } catch (error) {
+        console.error('Error cleaning up user connections:', {
+            error: error.message,
+            userId
+        });
+        throw error;
+    }
+};
+
 module.exports = {
     storeConnection,
     removeConnection,
@@ -248,5 +295,6 @@ module.exports = {
     sendMessageToClient,
     verifyToken,
     updateConnectionLocation,
-    updateConnectionTTL
+    updateConnectionTTL,
+    cleanupUserConnections
 };

@@ -132,59 +132,90 @@ exports.handler = async (event) => {
         logWithTiming("Processing $default route");
         
         try {
-          const messageData = JSON.parse(event.body);
-          
-          switch (messageData.action) {
-            case "subscribe": {
-              const { token, locationName, countryCode } = messageData;
-              
-              if (!locationName) {
-                return { 
-                  statusCode: 400, 
-                  body: JSON.stringify({ message: "Location name is required for subscription" }) 
-                };
-              }
-
-              const decoded = verifyToken(token);
-              logWithTiming("Token verified for subscription", { 
-                userId: decoded.userId,
-                locationName 
-              });
-
-              await updateConnectionLocation(connectionId, locationName);
-              logWithTiming("Location subscription updated");
-
-              const weatherData = await getWeatherUpdates([{
-                city_name: locationName,
-                country_code: countryCode
-              }]);
-              
-              const processedData = await processWeatherData(weatherData);
-              
-              await sendMessageToClient(connectionId, {
-                type: "weatherUpdate",
-                data: processedData,
-                timestamp: new Date().toISOString()
-              });
-
-              return { statusCode: 200, body: JSON.stringify({ message: "Subscribed successfully" }) };
+            const messageData = JSON.parse(event.body);
+            switch (messageData.action) {
+                case "subscribe": {
+                    const { token, locationName, countryCode } = messageData;
+                    
+                    if (!locationName) {
+                        return {
+                            statusCode: 400,
+                            body: JSON.stringify({ message: "Location name is required for subscription" })
+                        };
+                    }
+    
+                    const decoded = verifyToken(token);
+                    logWithTiming("Token verified for subscription", {
+                        userId: decoded.userId,
+                        locationName
+                    });
+    
+                    await updateConnectionLocation(connectionId, locationName);
+                    logWithTiming("Location subscription updated");
+    
+                    const weatherData = await getWeatherUpdates([{
+                        city_name: locationName,
+                        country_code: countryCode
+                    }]);
+                    
+                    const processedData = await processWeatherData(weatherData);
+                    
+                    await sendMessageToClient(connectionId, {
+                        type: "weatherUpdate",
+                        data: processedData,
+                        timestamp: new Date().toISOString()
+                    });
+    
+                    return { statusCode: 200, body: JSON.stringify({ message: "Subscribed successfully" }) };
+                }
+    
+                case "unsubscribe": {
+                    await updateConnectionLocation(connectionId, null);
+                    logWithTiming("Location subscription removed");
+                    return { statusCode: 200, body: JSON.stringify({ message: "Unsubscribed successfully" }) };
+                }
+    
+                case "logout": {
+                    const { token } = messageData;
+                    logWithTiming("Processing logout cleanup", { connectionId });
+    
+                    const decoded = verifyToken(token);
+                    logWithTiming("Token verified for logout", { 
+                        userId: decoded.userId 
+                    });
+    
+                    try {
+                        // Clean up all connections for this user
+                        await cleanupUserConnections(decoded.userId);
+                        logWithTiming("User connections cleaned up", { 
+                            userId: decoded.userId 
+                        });
+    
+                        // Remove the current connection explicitly
+                        await removeConnection(connectionId);
+                        logWithTiming("Current connection removed");
+    
+                        return {
+                            statusCode: 200,
+                            body: JSON.stringify({ message: "Logout cleanup completed" })
+                        };
+                    } catch (cleanupError) {
+                        logWithTiming("Error during logout cleanup", { 
+                            error: cleanupError.message 
+                        });
+                        throw cleanupError;
+                    }
+                }
+    
+                default:
+                    logWithTiming("Unknown action received", { action: messageData.action });
+                    return { statusCode: 400, body: JSON.stringify({ message: "Unknown action" }) };
             }
-
-            case "unsubscribe": {
-              await updateConnectionLocation(connectionId, null);
-              logWithTiming("Location subscription removed");
-              return { statusCode: 200, body: JSON.stringify({ message: "Unsubscribed successfully" }) };
-            }
-
-            default:
-              logWithTiming("Unknown action received", { action: messageData.action });
-              return { statusCode: 400, body: JSON.stringify({ message: "Unknown action" }) };
-          }
         } catch (error) {
-          logWithTiming("Error processing default route", { error: error.message });
-          throw error; // Let the global error handler deal with it
+            logWithTiming("Error processing default route", { error: error.message });
+            throw error; // Let the global error handler deal with it
         }
-      }
+    }
 
       default:
         logWithTiming("Unknown route");
