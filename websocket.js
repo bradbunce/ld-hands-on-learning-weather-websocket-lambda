@@ -152,7 +152,10 @@ const updateConnectionTTL = async (connectionId) => {
         await dynamo.send(new UpdateCommand({
             TableName: CONFIG.CONNECTIONS_TABLE,
             Key: { connectionId },
-            UpdateExpression: 'SET ttl = :ttl, expiresAt = :expiresAt',
+            UpdateExpression: 'SET #ttl = :ttl, expiresAt = :expiresAt',
+            ExpressionAttributeNames: {
+                '#ttl': 'ttl'
+            },
             ExpressionAttributeValues: {
                 ':ttl': ttl,
                 ':expiresAt': new Date(ttl * 1000).toISOString()
@@ -205,12 +208,16 @@ const updateConnectionLocation = async (connectionId, locationName) => {
     });
     
     try {
-        const ttl = calculateTTL(); // Refresh TTL when location is updated
+        const ttl = calculateTTL();
         
         await dynamo.send(new UpdateCommand({
             TableName: CONFIG.CONNECTIONS_TABLE,
             Key: { connectionId },
-            UpdateExpression: 'SET locationName = :locationName, ttl = :ttl, expiresAt = :expiresAt',
+            // Use expression attribute names for reserved word 'ttl'
+            UpdateExpression: 'SET locationName = :locationName, #ttl = :ttl, expiresAt = :expiresAt',
+            ExpressionAttributeNames: {
+                '#ttl': 'ttl'  // This is how we reference the reserved word
+            },
             ExpressionAttributeValues: {
                 ':locationName': locationName,
                 ':ttl': ttl,
