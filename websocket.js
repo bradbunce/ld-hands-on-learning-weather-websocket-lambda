@@ -201,10 +201,10 @@ const verifyToken = (token) => {
     }
 };
 
-const updateConnectionLocation = async (connectionId, locationName) => {
+const updateConnectionLocation = async (connectionId, locationId) => {
     console.log('Updating connection location:', { 
         connectionId,
-        locationName
+        locationId
     });
     
     try {
@@ -213,13 +213,12 @@ const updateConnectionLocation = async (connectionId, locationName) => {
         await dynamo.send(new UpdateCommand({
             TableName: CONFIG.CONNECTIONS_TABLE,
             Key: { connectionId },
-            // Use expression attribute names for reserved word 'ttl'
-            UpdateExpression: 'SET locationName = :locationName, #ttl = :ttl, expiresAt = :expiresAt',
+            UpdateExpression: 'SET locationId = :locationId, #ttl = :ttl, expiresAt = :expiresAt',
             ExpressionAttributeNames: {
-                '#ttl': 'ttl'  // This is how we reference the reserved word
+                '#ttl': 'ttl'
             },
             ExpressionAttributeValues: {
-                ':locationName': locationName,
+                ':locationId': locationId,
                 ':ttl': ttl,
                 ':expiresAt': new Date(ttl * 1000).toISOString()
             }
@@ -227,7 +226,7 @@ const updateConnectionLocation = async (connectionId, locationName) => {
         
         console.log('Location and TTL updated successfully:', { 
             connectionId,
-            locationName,
+            locationId,
             newTtl: ttl,
             expiresAt: new Date(ttl * 1000).toISOString()
         });
@@ -235,7 +234,7 @@ const updateConnectionLocation = async (connectionId, locationName) => {
         console.error('Failed to update location:', {
             error: error.message,
             connectionId,
-            locationName
+            locationId
         });
         throw error;
     }
