@@ -95,21 +95,14 @@ const validateTables = async (connection) => {
             SELECT table_name 
             FROM information_schema.tables 
             WHERE table_schema = ? 
-            AND table_name IN ('user_locations', 'weather_cache', 'websocket_subscriptions')
+            AND table_name IN ('locations', 'user_favorite_locations', 'weather_cache', 'websocket_subscriptions')
         `, [process.env.DB_NAME]);
 
         const existingTables = rows.map(row => row.table_name.toLowerCase());
         console.log('Existing tables:', existingTables);
 
-        // Create missing tables if needed
-        if (!existingTables.includes('user_locations')) {
-            console.log('Creating user_locations table...');
-            await connection.query(tableQueries.createUserLocationsTable);
-        }
-        if (!existingTables.includes('weather_cache')) {
-            console.log('Creating weather_cache table...');
-            await connection.query(tableQueries.createWeatherCacheTable);
-        }
+        // We only need to create websocket_subscriptions if it doesn't exist
+        // Other tables should already exist from your SQL dump
         if (!existingTables.includes('websocket_subscriptions')) {
             console.log('Creating websocket_subscriptions table...');
             await connection.query(tableQueries.createWebSocketSubscriptionsTable);
@@ -220,28 +213,39 @@ const getLocationsForUser = async (userId) => {
 const updateWeatherCache = async (locationData) => {
     let connection;
     try {
-        const { city_name, country_code, weather_data } = locationData;
+        const { location_id, ...weatherData } = locationData;
         
         console.log('Attempting to update weather cache:', {
-            city: city_name,
-            country: country_code,
+            locationId: location_id,
             timestamp: new Date().toISOString()
         });
 
         connection = await getConnection('write');
         
+        // Build the update query dynamically based on the weather data fields
+        const fields = Object.keys(weatherData);
+        const values = Object.values(weatherData);
+        const placeholders = fields.map(() => '?').join(', ');
+        const updateFields = fields.map(field => `${field} = ?`).join(', ');
+
+        const query = `
+            INSERT INTO weather_cache (location_id, ${fields.join(', ')})
+            VALUES (?, ${placeholders})
+            ON DUPLICATE KEY UPDATE
+            ${updateFields}
+        `;
+
         await retryOperation(
             () => connection.execute(
-                queries.updateWeatherCache,
-                [city_name, country_code, JSON.stringify(weather_data)]
+                query,
+                [location_id, ...values, ...values]
             ),
             3,  // max retries
             10000 // 10 second timeout
         );
 
         console.log('Successfully updated weather cache:', {
-            city: city_name,
-            country: country_code,
+            locationId: location_id,
             timestamp: new Date().toISOString()
         });
     } catch (error) {
@@ -261,12 +265,11 @@ const updateWeatherCache = async (locationData) => {
 const addUserLocation = async (userId, locationData) => {
     let connection;
     try {
-        const { city_name, country_code, latitude, longitude } = locationData;
+        const { locationId } = locationData;
         
         console.log('Attempting to add user location:', {
             userId,
-            city: city_name,
-            country: country_code,
+            locationId,
             timestamp: new Date().toISOString()
         });
 
@@ -277,7 +280,7 @@ const addUserLocation = async (userId, locationData) => {
         const [existing] = await retryOperation(
             () => connection.execute(
                 queries.checkLocationExists,
-                [userId, city_name, country_code]
+                [userId, locationId]
             ),
             2,  // fewer retries for check
             5000 // shorter timeout for check
@@ -287,11 +290,11 @@ const addUserLocation = async (userId, locationData) => {
             throw new Error('Location already exists for user');
         }
 
-        // Add location
-        const [result] = await retryOperation(
+        // Add to user_favorite_locations
+        await retryOperation(
             () => connection.execute(
                 queries.addUserLocation,
-                [userId, city_name, country_code, latitude, longitude]
+                [userId, locationId, userId] // Third parameter is for the subquery to get max display_order
             ),
             3,  // max retries
             10000 // 10 second timeout
@@ -301,13 +304,11 @@ const addUserLocation = async (userId, locationData) => {
 
         console.log('Successfully added user location:', {
             userId,
-            city: city_name,
-            country: country_code,
-            locationId: result.insertId,
+            locationId,
             timestamp: new Date().toISOString()
         });
 
-        return result.insertId;
+        return locationId;
     } catch (error) {
         if (connection) {
             await connection.rollback();
