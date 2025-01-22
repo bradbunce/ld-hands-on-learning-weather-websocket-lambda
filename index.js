@@ -151,39 +151,102 @@ exports.handler = async (event) => {
       case "getWeather": {
         logWithTiming("Processing getWeather route");
         const messageData = JSON.parse(event.body);
-        const { token, locationId } = messageData;
-
+        const connectionId = event.requestContext.connectionId;
+        
+        // Extract token and locations, with fallbacks
+        const token = messageData.token;
+        const locations = messageData.locations || [];
+    
         try {
-          const decoded = verifyToken(token);
-          logWithTiming("Token verified", { userId: decoded.userId });
-
-          if (locationId) {
-            await updateConnectionLocation(connectionId, locationId);
-            logWithTiming("Updated active location", { locationId });
-          } else {
+            // Check if token is provided
+            if (!token) {
+                logWithTiming("No token provided", { connectionId });
+                
+                await sendMessageToClient(connectionId, {
+                    type: "error",
+                    message: "Authentication required. Please reconnect.",
+                    code: "NO_TOKEN"
+                });
+    
+                return { 
+                    statusCode: 401, 
+                    body: JSON.stringify({ 
+                        message: "Authentication token is required" 
+                    }) 
+                };
+            }
+    
+            // Verify token
+            const decoded = verifyToken(token);
+            logWithTiming("Token verified", { userId: decoded.userId });
+    
+            // Update connection TTL
             await updateConnectionTTL(connectionId);
             logWithTiming("Refreshed connection TTL");
-          }
-
-          const locations = await getLocationsForUser(decoded.userId);
-          logWithTiming("Retrieved locations with weather data", { 
-            locationCount: locations.length 
-          });
-
-          const processedData = await processWeatherData(locations);
-
-          await sendMessageToClient(connectionId, {
-            type: "weatherUpdate",
-            data: processedData,
-            timestamp: new Date().toISOString()
-          });
-
-          return { statusCode: 200, body: JSON.stringify({ message: "Weather data sent" }) };
+    
+            // Retrieve user locations
+            const userLocations = await getLocationsForUser(decoded.userId);
+            
+            // Filter locations if specific ones are requested
+            const filteredLocations = locations.length > 0 
+                ? userLocations.filter(loc => locations.includes(loc.location_id))
+                : userLocations;
+    
+            logWithTiming("Retrieved locations with weather data", {
+                requestedLocationCount: locations.length,
+                totalUserLocations: userLocations.length,
+                filteredLocationCount: filteredLocations.length
+            });
+    
+            // Process weather data
+            const processedData = await processWeatherData(filteredLocations);
+    
+            // Send weather update
+            await sendMessageToClient(connectionId, {
+                type: "weatherUpdate",
+                data: processedData,
+                timestamp: new Date().toISOString()
+            });
+    
+            return { 
+                statusCode: 200, 
+                body: JSON.stringify({ 
+                    message: "Weather data sent successfully",
+                    locationCount: processedData.length
+                }) 
+            };
+    
         } catch (error) {
-          logWithTiming("GetWeather failed", { error: error.message });
-          throw error;
+            // Detailed error handling
+            logWithTiming("GetWeather failed", { 
+                error: error.message,
+                connectionId 
+            });
+    
+            // Send specific error messages
+            try {
+                await sendMessageToClient(connectionId, {
+                    type: "error",
+                    message: error.message,
+                    code: error.name === 'TokenExpiredError' ? 'TOKEN_EXPIRED' : 'UNKNOWN_ERROR'
+                });
+            } catch (sendError) {
+                logWithTiming("Failed to send error message", { 
+                    originalError: error.message,
+                    sendError: sendError.message 
+                });
+            }
+    
+            // Throw or return error response
+            return { 
+                statusCode: 500, 
+                body: JSON.stringify({ 
+                    message: "Failed to retrieve weather data",
+                    error: error.message 
+                }) 
+            };
         }
-      }
+    }
 
       case "$default": {
         logWithTiming("Processing $default route");
