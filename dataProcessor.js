@@ -24,19 +24,19 @@ const processWeatherData = async (weatherData) => {
             try {
                 // If data is already processed (comes from our API wrapper)
                 if (location.temperature !== undefined) {
-                    return {
-                        id: location.locationId,
-                        name: location.locationName,
-                        weather: {
-                            temperature: location.temperature,
-                            condition: location.condition,
-                            humidity: location.humidity,
-                            windSpeed: location.windSpeed,
-                            feelsLike: location.feelsLike,
-                            lastUpdated: location.timestamp
-                        }
-                    };
-                }
+                  return {
+                      id: location.location_id,  // Change locationId to location_id
+                      name: location.name,       // name is correct
+                      weather: {
+                          temperature: location.temperature,
+                          condition: location.condition,
+                          humidity: location.humidity,
+                          windSpeed: location.wind_speed,
+                          feelsLike: location.feels_like,
+                          lastUpdated: location.last_updated
+                      }
+                  };
+              }
                 
                 // If raw API data
                 if (location.current) {
