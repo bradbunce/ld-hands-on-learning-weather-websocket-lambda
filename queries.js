@@ -13,7 +13,7 @@ const queries = {
             ufl.display_order,
             ufl.created_at,
             w.temp_f as temperature,
-            w.condition_text as condition,
+            w.condition_text as \`condition\`,
             w.humidity,
             w.wind_mph as wind_speed,
             w.feelslike_f as feels_like,
@@ -45,8 +45,8 @@ const queries = {
         INSERT INTO user_favorite_locations
         (user_id, location_id, display_order)
         VALUES (?, ?, (
-            SELECT COALESCE(MAX(display_order), -1) + 1 
-            FROM user_favorite_locations 
+            SELECT COALESCE(MAX(display_order), -1) + 1
+            FROM user_favorite_locations
             WHERE user_id = ?
         ))
     `,
@@ -74,7 +74,7 @@ const queries = {
             l.longitude,
             l.timezone,
             w.temp_f as temperature,
-            w.condition_text as condition,
+            w.condition_text as \`condition\`,
             w.humidity,
             w.wind_mph as wind_speed,
             w.feelslike_f as feels_like,
@@ -138,9 +138,9 @@ const queries = {
     checkLocationExists: `
         SELECT location_id
         FROM user_favorite_locations
-        WHERE user_id = ? 
+        WHERE user_id = ?
             AND location_id = ?
-    `,
+    `
 };
 
 module.exports = {
