@@ -180,7 +180,26 @@ const getLocationsForUser = async (userId) => {
         });
 
         const [rows] = await retryOperation(
-            () => connection.execute(queries.getUserLocations, [userId]),
+            () => connection.execute(
+                `SELECT
+                    l.location_id,
+                    l.name,
+                    l.region,
+                    l.country,
+                    l.country_code,
+                    l.latitude,
+                    l.longitude,
+                    l.timezone,
+                    ufl.created_at,
+                    ufl.display_order,
+                    w.*
+                FROM locations l
+                JOIN user_favorite_locations ufl ON l.location_id = ufl.location_id
+                LEFT JOIN weather_cache w ON l.location_id = w.location_id
+                WHERE ufl.user_id = ?
+                ORDER BY ufl.display_order ASC, ufl.created_at ASC`,
+                [userId]
+            ),
             3,  // max retries
             20000 // 20 second timeout
         );
@@ -191,10 +210,17 @@ const getLocationsForUser = async (userId) => {
             timestamp: new Date().toISOString()
         });
 
-        // Parse any JSON weather data from cache
         return rows.map(row => ({
-            ...row,
-            weather_data: row.weather_data ? JSON.parse(row.weather_data) : null
+            location_id: row.location_id,
+            city_name: row.name,
+            country: row.country,
+            country_code: row.country_code,
+            region: row.region,
+            latitude: row.latitude,
+            longitude: row.longitude,
+            timezone: row.timezone,
+            display_order: row.display_order,
+            created_at: row.created_at
         }));
     } catch (error) {
         console.error('Error getting user locations:', {
