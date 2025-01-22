@@ -33,7 +33,10 @@ const apiGateway = new ApiGatewayManagementApiClient({
 const calculateTTL = () => Math.floor(Date.now() / 1000) + (CONFIG.CONNECTION_TTL_HOURS * 60 * 60);
 
 const storeConnection = async (connectionId, userId) => {
-    console.log('Storing connection:', { connectionId, userId });
+    // Explicitly convert userId to string
+    const stringUserId = String(userId);
+    
+    console.log('Storing connection:', { connectionId, userId: stringUserId });
     
     const now = Date.now();
     const ttl = calculateTTL();
@@ -43,7 +46,7 @@ const storeConnection = async (connectionId, userId) => {
             TableName: CONFIG.CONNECTIONS_TABLE,
             Item: {
                 connectionId,
-                userId,
+                userId: stringUserId,  // Ensure string type
                 timestamp: now,
                 ttl,
                 expiresAt: new Date(ttl * 1000).toISOString(),
@@ -54,7 +57,7 @@ const storeConnection = async (connectionId, userId) => {
         
         console.log('Connection stored successfully:', { 
             connectionId, 
-            userId,
+            userId: stringUserId,
             ttl,
             expiresAt: new Date(ttl * 1000).toISOString()
         });
@@ -62,7 +65,7 @@ const storeConnection = async (connectionId, userId) => {
         console.error('Failed to store connection:', {
             error: error.message,
             connectionId,
-            userId
+            userId: stringUserId
         });
         throw error;
     }
@@ -183,11 +186,20 @@ const verifyToken = (token) => {
 
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        
+        // Explicitly convert userId to string
+        const stringUserId = String(decoded.userId);
+        
         console.log('Token verified:', { 
-            userId: decoded.userId,
+            userId: stringUserId,
             username: decoded.username
         });
-        return decoded;
+        
+        // Return decoded object with stringified userId
+        return {
+            ...decoded,
+            userId: stringUserId
+        };
     } catch (error) {
         console.error('Token verification failed:', { 
             error: error.message,
@@ -241,7 +253,10 @@ const updateConnectionLocation = async (connectionId, locationId) => {
 };
 
 const cleanupUserConnections = async (userId) => {
-    console.log('Cleaning up connections for user:', { userId });
+    // Explicitly convert userId to string
+    const stringUserId = String(userId);
+    
+    console.log('Cleaning up connections for user:', { userId: stringUserId });
     
     try {
         // Query for all connections belonging to this user
@@ -249,17 +264,17 @@ const cleanupUserConnections = async (userId) => {
             TableName: CONFIG.CONNECTIONS_TABLE,
             FilterExpression: 'userId = :userId',
             ExpressionAttributeValues: {
-                ':userId': userId
+                ':userId': stringUserId
             }
         }));
 
         if (!Items?.length) {
-            console.log('No connections found for user:', { userId });
+            console.log('No connections found for user:', { userId: stringUserId });
             return;
         }
 
         console.log('Found connections to cleanup:', { 
-            userId, 
+            userId: stringUserId, 
             connectionCount: Items.length,
             connections: Items.map(item => item.connectionId)
         });
@@ -275,13 +290,13 @@ const cleanupUserConnections = async (userId) => {
         await Promise.all(deletePromises);
 
         console.log('Successfully cleaned up user connections:', {
-            userId,
+            userId: stringUserId,
             cleanedCount: Items.length
         });
     } catch (error) {
         console.error('Error cleaning up user connections:', {
             error: error.message,
-            userId
+            userId: stringUserId
         });
         throw error;
     }
