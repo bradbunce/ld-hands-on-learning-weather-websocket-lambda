@@ -78,7 +78,7 @@ const removeConnection = async (connectionId) => {
         await dynamo.send(new DeleteCommand({
             TableName: CONFIG.CONNECTIONS_TABLE,
             Key: { 
-                connectionId: { S: connectionId }  // Explicitly specify the type
+                connectionId: connectionId  // Remove explicit type mapping
             }
         }));
         
@@ -88,7 +88,8 @@ const removeConnection = async (connectionId) => {
             error: error.message,
             connectionId
         });
-        throw error;
+        // Consider not throwing the error to prevent disrupting other operations
+        console.error('Removal error ignored to prevent connection interruption');
     }
 };
 
