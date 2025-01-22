@@ -9,7 +9,6 @@ const {
   cleanupUserConnections
 } = require("./websocket");
 const { processWeatherData } = require("./dataProcessor");
-const { getWeatherUpdates } = require("./weather-queries");
 const { getLocationsForUser } = require("./database");
 
 exports.handler = async (event) => {
@@ -53,17 +52,16 @@ exports.handler = async (event) => {
           logWithTiming("Connection stored");
 
           const locations = await getLocationsForUser(decoded.userId);
-          logWithTiming("Retrieved locations", { 
+          logWithTiming("Retrieved locations with weather data", { 
             locationCount: locations.length,
             locations: locations.map(loc => ({
               id: loc.location_id,
-              name: loc.city_name
+              name: loc.name
             }))
           });
 
           if (locations.length > 0) {
-            const weatherData = await getWeatherUpdates(locations);
-            const processedData = await processWeatherData(weatherData);
+            const processedData = await processWeatherData(locations);
             
             await sendMessageToClient(connectionId, {
               type: "weatherUpdate",
@@ -108,16 +106,12 @@ exports.handler = async (event) => {
             logWithTiming("Refreshed connection TTL");
           }
 
-          const locations = locationId 
-            ? [{ location_id: locationId }]
-            : await getLocationsForUser(decoded.userId);
-
-          logWithTiming("Fetching weather data", { 
+          const locations = await getLocationsForUser(decoded.userId);
+          logWithTiming("Retrieved locations with weather data", { 
             locationCount: locations.length 
           });
 
-          const weatherData = await getWeatherUpdates(locations);
-          const processedData = await processWeatherData(weatherData);
+          const processedData = await processWeatherData(locations);
 
           await sendMessageToClient(connectionId, {
             type: "weatherUpdate",
@@ -158,9 +152,8 @@ exports.handler = async (event) => {
               await updateConnectionLocation(connectionId, locationId);
               logWithTiming("Location subscription updated");
 
-              const locations = [{ location_id: locationId }];
-              const weatherData = await getWeatherUpdates(locations);
-              const processedData = await processWeatherData(weatherData);
+              const locations = await getLocationsForUser(decoded.userId);
+              const processedData = await processWeatherData(locations);
               
               await sendMessageToClient(connectionId, {
                 type: "weatherUpdate",
