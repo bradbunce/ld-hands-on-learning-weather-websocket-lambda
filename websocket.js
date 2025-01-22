@@ -77,7 +77,9 @@ const removeConnection = async (connectionId) => {
     try {
         await dynamo.send(new DeleteCommand({
             TableName: CONFIG.CONNECTIONS_TABLE,
-            Key: { connectionId }
+            Key: { 
+                connectionId: { S: connectionId }  // Explicitly specify the type
+            }
         }));
         
         console.log('Connection removed successfully:', { connectionId });
