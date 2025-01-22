@@ -1,7 +1,7 @@
 const queries = {
-    // Location queries
+    // User Location Queries
     getUserLocations: `
-        SELECT
+        SELECT 
             l.location_id,
             l.name,
             l.region,
@@ -10,19 +10,42 @@ const queries = {
             l.latitude,
             l.longitude,
             l.timezone,
+            ufl.display_order,
             ufl.created_at,
-            ufl.display_order
+            w.temp_f as temperature,
+            w.condition_text as condition,
+            w.humidity,
+            w.wind_mph as wind_speed,
+            w.feelslike_f as feels_like,
+            w.is_day,
+            w.condition_code,
+            w.condition_icon,
+            w.wind_kph,
+            w.wind_degree,
+            w.wind_dir,
+            w.pressure_mb,
+            w.pressure_in,
+            w.precip_mm,
+            w.precip_in,
+            w.cloud,
+            w.vis_km,
+            w.vis_miles,
+            w.uv,
+            w.gust_mph,
+            w.gust_kph,
+            w.last_updated
         FROM locations l
         JOIN user_favorite_locations ufl ON l.location_id = ufl.location_id
+        LEFT JOIN weather_cache w ON l.location_id = w.location_id
         WHERE ufl.user_id = ?
         ORDER BY ufl.display_order ASC, ufl.created_at ASC
     `,
 
-    addUserLocation: `
+    addUserFavoriteLocation: `
         INSERT INTO user_favorite_locations
         (user_id, location_id, display_order)
         VALUES (?, ?, (
-            SELECT COALESCE(MAX(display_order), 0) + 1 
+            SELECT COALESCE(MAX(display_order), -1) + 1 
             FROM user_favorite_locations 
             WHERE user_id = ?
         ))
@@ -33,15 +56,51 @@ const queries = {
         WHERE user_id = ? AND location_id = ?
     `,
 
-    // Weather cache queries
-    getWeatherCache: `
-        SELECT *
-        FROM weather_cache
-        WHERE location_id = ?
-        AND last_updated > DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+    updateLocationOrder: `
+        UPDATE user_favorite_locations
+        SET display_order = ?
+        WHERE user_id = ? AND location_id = ?
     `,
 
-    // WebSocket connection queries
+    // Weather Queries
+    getLocationWeather: `
+        SELECT 
+            l.location_id,
+            l.name,
+            l.region,
+            l.country,
+            l.country_code,
+            l.latitude,
+            l.longitude,
+            l.timezone,
+            w.temp_f as temperature,
+            w.condition_text as condition,
+            w.humidity,
+            w.wind_mph as wind_speed,
+            w.feelslike_f as feels_like,
+            w.is_day,
+            w.condition_code,
+            w.condition_icon,
+            w.wind_kph,
+            w.wind_degree,
+            w.wind_dir,
+            w.pressure_mb,
+            w.pressure_in,
+            w.precip_mm,
+            w.precip_in,
+            w.cloud,
+            w.vis_km,
+            w.vis_miles,
+            w.uv,
+            w.gust_mph,
+            w.gust_kph,
+            w.last_updated
+        FROM locations l
+        LEFT JOIN weather_cache w ON l.location_id = w.location_id
+        WHERE l.location_id = ?
+    `,
+
+    // WebSocket Subscription Queries
     getActiveSubscriptions: `
         SELECT 
             ws.connection_id,
@@ -71,52 +130,19 @@ const queries = {
         WHERE connection_id = ?
     `,
 
-    // Cleanup queries
-    cleanupWeatherCache: `
-        DELETE FROM weather_cache
-        WHERE last_updated < DATE_SUB(NOW(), INTERVAL 1 HOUR)
-    `,
-
     cleanupSubscriptions: `
         DELETE FROM websocket_subscriptions
         WHERE last_active < DATE_SUB(NOW(), INTERVAL 5 MINUTE)
     `,
 
-    // Check if location exists
     checkLocationExists: `
         SELECT location_id
         FROM user_favorite_locations
         WHERE user_id = ? 
             AND location_id = ?
     `,
-
-    // Update location order
-    updateLocationOrder: `
-        UPDATE user_favorite_locations
-        SET display_order = ?
-        WHERE user_id = ?
-            AND location_id = ?
-    `
-};
-
-// Table creation queries (for reference)
-const tableQueries = {
-    createWebSocketSubscriptionsTable: `
-        CREATE TABLE IF NOT EXISTS websocket_subscriptions (
-            subscription_id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            connection_id VARCHAR(128) NOT NULL,
-            location_id INT NOT NULL,
-            last_active TIMESTAMP NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE INDEX idx_connection_location (connection_id, location_id),
-            INDEX idx_last_active (last_active),
-            FOREIGN KEY (location_id) REFERENCES locations(location_id)
-                ON DELETE CASCADE
-        )
-    `
 };
 
 module.exports = {
-    queries,
-    tableQueries
+    queries
 };

@@ -180,26 +180,7 @@ const getLocationsForUser = async (userId) => {
         });
 
         const [rows] = await retryOperation(
-            () => connection.execute(
-                `SELECT
-                    l.location_id,
-                    l.name,
-                    l.region,
-                    l.country,
-                    l.country_code,
-                    l.latitude,
-                    l.longitude,
-                    l.timezone,
-                    ufl.created_at,
-                    ufl.display_order,
-                    w.*
-                FROM locations l
-                JOIN user_favorite_locations ufl ON l.location_id = ufl.location_id
-                LEFT JOIN weather_cache w ON l.location_id = w.location_id
-                WHERE ufl.user_id = ?
-                ORDER BY ufl.display_order ASC, ufl.created_at ASC`,
-                [userId]
-            ),
+            () => connection.execute(queries.getUserLocations, [userId]),
             3,  // max retries
             20000 // 20 second timeout
         );
@@ -210,9 +191,15 @@ const getLocationsForUser = async (userId) => {
             timestamp: new Date().toISOString()
         });
 
+        // Transform the rows to match expected format
         return rows.map(row => ({
             location_id: row.location_id,
-            city_name: row.name,
+            name: row.name,
+            temperature: row.temperature,
+            condition: row.condition,
+            humidity: row.humidity,
+            wind_speed: row.wind_speed,
+            feels_like: row.feels_like,
             country: row.country,
             country_code: row.country_code,
             region: row.region,
@@ -220,7 +207,26 @@ const getLocationsForUser = async (userId) => {
             longitude: row.longitude,
             timezone: row.timezone,
             display_order: row.display_order,
-            created_at: row.created_at
+            created_at: row.created_at,
+            last_updated: row.last_updated,
+            details: {
+                is_day: row.is_day,
+                condition_code: row.condition_code,
+                condition_icon: row.condition_icon,
+                wind_kph: row.wind_kph,
+                wind_degree: row.wind_degree,
+                wind_dir: row.wind_dir,
+                pressure_mb: row.pressure_mb,
+                pressure_in: row.pressure_in,
+                precip_mm: row.precip_mm,
+                precip_in: row.precip_in,
+                cloud: row.cloud,
+                vis_km: row.vis_km,
+                vis_miles: row.vis_miles,
+                uv: row.uv,
+                gust_mph: row.gust_mph,
+                gust_kph: row.gust_kph
+            }
         }));
     } catch (error) {
         console.error('Error getting user locations:', {
