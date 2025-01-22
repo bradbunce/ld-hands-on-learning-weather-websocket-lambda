@@ -4,7 +4,7 @@ const {
   removeConnection,
   sendMessageToClient,
   verifyToken,
-  updateConnectionLocation,
+  updateConnectionLocations,
   updateConnectionTTL,
   cleanupUserConnections
 } = require("./websocket");
@@ -271,7 +271,7 @@ exports.handler = async (event) => {
                 locationId
               });
 
-              await updateConnectionLocation(connectionId, locationId);
+              await updateConnectionLocations(connectionId, locationId);
               logWithTiming("Location subscription updated");
 
               const locations = await getLocationsForUser(decoded.userId);
@@ -287,7 +287,7 @@ exports.handler = async (event) => {
             }
 
             case "unsubscribe": {
-              await updateConnectionLocation(connectionId, null);
+              await updateConnectionLocations(connectionId, null);
               logWithTiming("Location subscription removed");
               return { statusCode: 200, body: JSON.stringify({ message: "Unsubscribed successfully" }) };
             }

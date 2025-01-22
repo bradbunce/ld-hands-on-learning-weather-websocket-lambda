@@ -33,10 +33,7 @@ const apiGateway = new ApiGatewayManagementApiClient({
 const calculateTTL = () => Math.floor(Date.now() / 1000) + (CONFIG.CONNECTION_TTL_HOURS * 60 * 60);
 
 const storeConnection = async (connectionId, userId) => {
-    // Explicitly convert userId to string
-    const stringUserId = String(userId);
-    
-    console.log('Storing connection:', { connectionId, userId: stringUserId });
+    console.log('Storing connection:', { connectionId, userId });
     
     const now = Date.now();
     const ttl = calculateTTL();
@@ -45,51 +42,52 @@ const storeConnection = async (connectionId, userId) => {
         await dynamo.send(new PutCommand({
             TableName: CONFIG.CONNECTIONS_TABLE,
             Item: {
-                connectionId,
-                userId: stringUserId,  // Ensure string type
+                connectionId: connectionId,
+                userId: String(userId),
                 timestamp: now,
-                ttl,
-                expiresAt: new Date(ttl * 1000).toISOString(),
-                serviceType: 'weather-updates',
-                locationName: null
+                ttl: ttl,
+                locationIds: [], // Initialize with empty list
+                status: 'CONNECTED'
             }
         }));
         
         console.log('Connection stored successfully:', { 
             connectionId, 
-            userId: stringUserId,
+            userId,
             ttl,
-            expiresAt: new Date(ttl * 1000).toISOString()
+            timestamp: now
         });
     } catch (error) {
         console.error('Failed to store connection:', {
             error: error.message,
             connectionId,
-            userId: stringUserId
+            userId,
+            detailedError: error
         });
         throw error;
     }
 };
 
-const removeConnection = async (connectionId) => {
-    console.log('Removing connection:', { connectionId });
+const removeConnection = async (connectionId, userId) => {
+    console.log('Removing connection:', { connectionId, userId });
     
     try {
         await dynamo.send(new DeleteCommand({
             TableName: CONFIG.CONNECTIONS_TABLE,
             Key: { 
-                connectionId: connectionId  // Remove explicit type mapping
+                connectionId: connectionId,
+                userId: String(userId)
             }
         }));
         
-        console.log('Connection removed successfully:', { connectionId });
+        console.log('Connection removed successfully:', { connectionId, userId });
     } catch (error) {
         console.error('Failed to remove connection:', {
             error: error.message,
-            connectionId
+            connectionId,
+            userId
         });
-        // Consider not throwing the error to prevent disrupting other operations
-        console.error('Removal error ignored to prevent connection interruption');
+        throw error;
     }
 };
 
@@ -149,34 +147,36 @@ const sendMessageToClient = async (connectionId, payload) => {
     }
 };
 
-const updateConnectionTTL = async (connectionId) => {
-    console.log('Updating connection TTL:', { connectionId });
+const updateConnectionTTL = async (connectionId, userId) => {
+    console.log('Updating connection TTL:', { connectionId, userId });
     
     const ttl = calculateTTL();
     
     try {
         await dynamo.send(new UpdateCommand({
             TableName: CONFIG.CONNECTIONS_TABLE,
-            Key: { connectionId },
-            UpdateExpression: 'SET #ttl = :ttl, expiresAt = :expiresAt',
-            ExpressionAttributeNames: {
-                '#ttl': 'ttl'
+            Key: { 
+                connectionId: connectionId,
+                userId: String(userId)
             },
+            UpdateExpression: 'SET ttl = :ttl, status = :status',
             ExpressionAttributeValues: {
                 ':ttl': ttl,
-                ':expiresAt': new Date(ttl * 1000).toISOString()
+                ':status': 'CONNECTED'
             }
         }));
         
         console.log('TTL updated successfully:', { 
             connectionId,
-            newTtl: ttl,
-            expiresAt: new Date(ttl * 1000).toISOString()
+            userId,
+            newTtl: ttl
         });
     } catch (error) {
         console.error('Failed to update TTL:', {
             error: error.message,
-            connectionId
+            connectionId,
+            userId,
+            detailedError: error
         });
         throw error;
     }
@@ -268,40 +268,43 @@ const verifyToken = (token) => {
     }
 };
 
-const updateConnectionLocation = async (connectionId, locationId) => {
-    console.log('Updating connection location:', { 
+const updateConnectionLocations = async (connectionId, userId, locationIds) => {
+    console.log('Updating connection locations:', { 
         connectionId,
-        locationId
+        userId,
+        locationIds
     });
     
+    const ttl = calculateTTL();
+    
     try {
-        const ttl = calculateTTL();
-        
         await dynamo.send(new UpdateCommand({
             TableName: CONFIG.CONNECTIONS_TABLE,
-            Key: { connectionId },
-            UpdateExpression: 'SET locationId = :locationId, #ttl = :ttl, expiresAt = :expiresAt',
-            ExpressionAttributeNames: {
-                '#ttl': 'ttl'
+            Key: { 
+                connectionId: connectionId,
+                userId: String(userId)
             },
+            UpdateExpression: 'SET locationIds = :locationIds, ttl = :ttl, status = :status',
             ExpressionAttributeValues: {
-                ':locationId': locationId,
+                ':locationIds': locationIds,
                 ':ttl': ttl,
-                ':expiresAt': new Date(ttl * 1000).toISOString()
+                ':status': 'CONNECTED'
             }
         }));
         
-        console.log('Location and TTL updated successfully:', { 
+        console.log('Locations updated successfully:', { 
             connectionId,
-            locationId,
-            newTtl: ttl,
-            expiresAt: new Date(ttl * 1000).toISOString()
+            userId,
+            locationIds,
+            newTtl: ttl
         });
     } catch (error) {
-        console.error('Failed to update location:', {
+        console.error('Failed to update locations:', {
             error: error.message,
             connectionId,
-            locationId
+            userId,
+            locationIds,
+            detailedError: error
         });
         throw error;
     }
@@ -363,7 +366,7 @@ module.exports = {
     getActiveConnections,
     sendMessageToClient,
     verifyToken,
-    updateConnectionLocation,
+    updateConnectionLocations,
     updateConnectionTTL,
     cleanupUserConnections
 };
