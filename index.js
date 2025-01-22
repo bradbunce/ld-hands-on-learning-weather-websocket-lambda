@@ -37,51 +37,110 @@ exports.handler = async (event) => {
     switch (event.requestContext.routeKey) {
       case "$connect": {
         logWithTiming("Processing $connect route");
+        const connectionId = event.requestContext.connectionId;
         const token = event.queryStringParameters?.token;
-        const userId = event.queryStringParameters?.userId;
+        const providedUserId = event.queryStringParameters?.userId;
     
-        if (!token || !userId) {
+        if (!token || !providedUserId) {
             logWithTiming("Missing token or userId", { 
                 hasToken: !!token, 
-                hasUserId: !!userId 
+                hasUserId: !!providedUserId 
             });
-            return { statusCode: 401, body: JSON.stringify({ message: "Authorization token and userId required" }) };
+            return { 
+                statusCode: 401, 
+                body: JSON.stringify({ 
+                    message: "Authorization token and userId required" 
+                }) 
+            };
         }
     
         try {
             const decoded = verifyToken(token);
             
-            // Ensure userId matches decoded token's userId
-            if (String(decoded.userId) !== String(userId)) {
-                logWithTiming("UserId mismatch", { 
+            // Allow connection if either:
+            // 1. Provided userId matches the numeric user ID from token
+            // 2. Provided userId matches the username from token
+            const isValidUser = 
+                String(decoded.userId) === String(providedUserId) || 
+                decoded.username === providedUserId;
+    
+            if (!isValidUser) {
+                logWithTiming("UserId validation failed", { 
                     tokenUserId: decoded.userId, 
-                    providedUserId: userId 
+                    tokenUsername: decoded.username,
+                    providedUserId 
                 });
-                return { statusCode: 401, body: JSON.stringify({ message: "Invalid user identification" }) };
+                return { 
+                    statusCode: 401, 
+                    body: JSON.stringify({ 
+                        message: "Invalid user identification" 
+                    }) 
+                };
             }
-            
-          if (locations.length > 0) {
-            const processedData = await processWeatherData(locations);
-            
-            await sendMessageToClient(connectionId, {
-              type: "weatherUpdate",
-              data: processedData,
-              timestamp: new Date().toISOString()
+    
+            // Store the connection with the numeric user ID
+            await storeConnection(connectionId, decoded.userId);
+            logWithTiming("Connection stored");
+    
+            // Retrieve user's locations
+            const locations = await getLocationsForUser(decoded.userId);
+            logWithTiming("Retrieved locations with weather data", { 
+                locationCount: locations.length,
+                locations: locations.map(loc => ({
+                    id: loc.location_id,
+                    name: loc.name
+                }))
             });
-          } else {
-            await sendMessageToClient(connectionId, {
-              type: "noLocations",
-              message: "No locations found. Please add a location to get weather updates.",
-              timestamp: new Date().toISOString()
-            });
-          }
-
-          return { statusCode: 200, body: JSON.stringify({ message: "Connected successfully" }) };
+    
+            // Process and send weather data if locations exist
+            if (locations.length > 0) {
+                const processedData = await processWeatherData(locations);
+                
+                await sendMessageToClient(connectionId, {
+                    type: "weatherUpdate",
+                    data: processedData,
+                    timestamp: new Date().toISOString()
+                });
+            } else {
+                await sendMessageToClient(connectionId, {
+                    type: "noLocations",
+                    message: "No locations found. Please add a location to get weather updates.",
+                    timestamp: new Date().toISOString()
+                });
+            }
+    
+            // Successful connection
+            return { 
+                statusCode: 200, 
+                body: JSON.stringify({ 
+                    message: "Connected successfully" 
+                }) 
+            };
+    
         } catch (verificationError) {
-          logWithTiming("Token verification failed", { error: verificationError.message });
-          return { statusCode: 401, body: JSON.stringify({ message: "Invalid token" }) };
+            logWithTiming("Token verification failed", { 
+                error: verificationError.message,
+                connectionId 
+            });
+    
+            // Specific error handling
+            if (verificationError.message.includes('expired')) {
+                return { 
+                    statusCode: 401, 
+                    body: JSON.stringify({ 
+                        message: "Token has expired. Please log in again." 
+                    }) 
+                };
+            }
+    
+            return { 
+                statusCode: 401, 
+                body: JSON.stringify({ 
+                    message: "Invalid token" 
+                }) 
+            };
         }
-      }
+    }
 
       case "$disconnect": {
         logWithTiming("Processing $disconnect route");

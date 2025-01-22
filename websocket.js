@@ -182,36 +182,88 @@ const updateConnectionTTL = async (connectionId) => {
 };
 
 const verifyToken = (token) => {
+    // Validate environment setup
     if (!process.env.JWT_SECRET) {
-        throw new Error('JWT_SECRET is not configured');
+        console.error('JWT Configuration Error: JWT_SECRET environment variable is not set');
+        throw new Error('JWT configuration error');
+    }
+
+    // Validate token input
+    if (!token) {
+        console.error('Token Verification Failed: No token provided');
+        throw new Error('No token provided');
     }
 
     try {
+        // Log basic token details for debugging
+        console.log('Token Verification Attempt', {
+            tokenLength: token.length,
+            tokenStart: token.substring(0, 20)
+        });
+
+        // Verify and decode the token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        
-        // Explicitly convert userId to string
-        const stringUserId = String(decoded.userId);
-        
-        console.log('Token verified:', { 
-            userId: stringUserId,
-            username: decoded.username
-        });
-        
-        // Return decoded object with stringified userId
-        return {
-            ...decoded,
-            userId: stringUserId
-        };
-    } catch (error) {
-        console.error('Token verification failed:', { 
-            error: error.message,
-            errorType: error.name 
-        });
-        
-        if (error.name === 'TokenExpiredError') {
-            throw new Error('Token has expired');
+
+        // Ensure critical fields exist
+        if (!decoded.userId || !decoded.username) {
+            console.error('Invalid Token: Missing required fields', {
+                missingUserId: !decoded.userId,
+                missingUsername: !decoded.username
+            });
+            throw new Error('Invalid token payload');
         }
-        throw new Error('Invalid token');
+
+        // Convert userId to string and prepare return object
+        const verifiedPayload = {
+            userId: String(decoded.userId),
+            username: decoded.username,
+            // Preserve other original claims
+            iat: decoded.iat,
+            exp: decoded.exp
+        };
+
+        // Log successful verification details
+        console.log('Token Verified Successfully', {
+            userId: verifiedPayload.userId,
+            username: verifiedPayload.username,
+            expiresAt: new Date(decoded.exp * 1000).toISOString()
+        });
+
+        return verifiedPayload;
+
+    } catch (error) {
+        // Detailed error logging
+        console.error('Token Verification Failed', {
+            name: error.name,
+            message: error.message
+        });
+
+        // Specific error handling
+        switch (error.name) {
+            case 'TokenExpiredError':
+                console.warn('Token Expired', {
+                    message: 'The token has expired'
+                });
+                throw new Error('Token has expired');
+
+            case 'JsonWebTokenError':
+                console.warn('Invalid Token', {
+                    message: 'The token signature is invalid'
+                });
+                throw new Error('Invalid token signature');
+
+            case 'NotBeforeError':
+                console.warn('Token Not Active', {
+                    message: 'The token is not yet active'
+                });
+                throw new Error('Token is not yet active');
+
+            default:
+                console.error('Unhandled Token Verification Error', {
+                    errorDetails: error
+                });
+                throw new Error('Token verification failed');
+        }
     }
 };
 
