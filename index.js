@@ -38,28 +38,28 @@ exports.handler = async (event) => {
       case "$connect": {
         logWithTiming("Processing $connect route");
         const token = event.queryStringParameters?.token;
-
-        if (!token) {
-          logWithTiming("No token provided during connection");
-          return { statusCode: 401, body: JSON.stringify({ message: "Authorization token required" }) };
+        const userId = event.queryStringParameters?.userId;
+    
+        if (!token || !userId) {
+            logWithTiming("Missing token or userId", { 
+                hasToken: !!token, 
+                hasUserId: !!userId 
+            });
+            return { statusCode: 401, body: JSON.stringify({ message: "Authorization token and userId required" }) };
         }
-
+    
         try {
-          const decoded = verifyToken(token);
-          logWithTiming("Token verified", { userId: decoded.userId });
-
-          await storeConnection(connectionId, decoded.userId);
-          logWithTiming("Connection stored");
-
-          const locations = await getLocationsForUser(decoded.userId);
-          logWithTiming("Retrieved locations with weather data", { 
-            locationCount: locations.length,
-            locations: locations.map(loc => ({
-              id: loc.location_id,
-              name: loc.name
-            }))
-          });
-
+            const decoded = verifyToken(token);
+            
+            // Ensure userId matches decoded token's userId
+            if (String(decoded.userId) !== String(userId)) {
+                logWithTiming("UserId mismatch", { 
+                    tokenUserId: decoded.userId, 
+                    providedUserId: userId 
+                });
+                return { statusCode: 401, body: JSON.stringify({ message: "Invalid user identification" }) };
+            }
+            
           if (locations.length > 0) {
             const processedData = await processWeatherData(locations);
             
