@@ -159,7 +159,10 @@ const updateConnectionTTL = async (connectionId, userId) => {
                 connectionId: connectionId,
                 userId: String(userId)
             },
-            UpdateExpression: 'SET ttl = :ttl, status = :status',
+            UpdateExpression: 'SET #ttlAttribute = :ttl, status = :status',
+            ExpressionAttributeNames: {
+                '#ttlAttribute': 'ttl'  // Use an expression attribute name for 'ttl'
+            },
             ExpressionAttributeValues: {
                 ':ttl': ttl,
                 ':status': 'CONNECTED'
@@ -284,7 +287,10 @@ const updateConnectionLocations = async (connectionId, userId, locationIds) => {
                 connectionId: connectionId,
                 userId: String(userId)
             },
-            UpdateExpression: 'SET locationIds = :locationIds, ttl = :ttl, status = :status',
+            UpdateExpression: 'SET locationIds = :locationIds, #ttlAttribute = :ttl, status = :status',
+            ExpressionAttributeNames: {
+                '#ttlAttribute': 'ttl'  // Use an expression attribute name for 'ttl'
+            },
             ExpressionAttributeValues: {
                 ':locationIds': locationIds,
                 ':ttl': ttl,
