@@ -48,12 +48,7 @@ const storeConnection = async (connectionId, userId) => {
                 timestamp: now,
                 ttl: ttl,
                 locationIds: [], // Initialize with empty list
-                status: 'CONNECTED',
-                deviceInfo: {
-                    // Optional: Add more device/browser identification details
-                    userAgent: event.requestContext.identity.userAgent,
-                    sourceIp: event.requestContext.identity.sourceIp
-                }
+                status: 'CONNECTED'
             },
             // Prevent overwriting an existing connection with the same connectionId
             ConditionExpression: 'attribute_not_exists(connectionId)'
@@ -68,7 +63,6 @@ const storeConnection = async (connectionId, userId) => {
     } catch (error) {
         if (error.name === 'ConditionalCheckFailedException') {
             console.warn('Connection already exists', { connectionId });
-            // Optionally, you could log this or take specific action
         } else {
             console.error('Failed to store connection:', {
                 error: error.message,
