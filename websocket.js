@@ -384,6 +384,36 @@ const cleanupUserConnections = async (userId) => {
     }
 };
 
+const broadcastToUserConnections = async (userId, payload) => {
+    try {
+        const { Items } = await dynamo.send(new ScanCommand({
+            TableName: CONFIG.CONNECTIONS_TABLE,
+            FilterExpression: 'userId = :userId',
+            ExpressionAttributeValues: {
+                ':userId': String(userId)
+            }
+        }));
+
+        if (!Items?.length) {
+            console.log('No active connections for user:', userId);
+            return;
+        }
+
+        const sendPromises = Items.map(connection => 
+            sendMessageToClient(connection.connectionId, payload)
+        );
+
+        await Promise.all(sendPromises);
+        
+    } catch (error) {
+        console.error('Error broadcasting to user connections:', {
+            error: error.message,
+            userId
+        });
+        throw error;
+    }
+};
+
 module.exports = {
     storeConnection,
     removeConnection,
@@ -392,5 +422,6 @@ module.exports = {
     verifyToken,
     updateConnectionLocations,
     updateConnectionTTL,
-    cleanupUserConnections
+    cleanupUserConnections,
+    broadcastToUserConnections
 };
