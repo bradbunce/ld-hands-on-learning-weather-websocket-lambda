@@ -248,6 +248,23 @@ exports.handler = async (event) => {
         }
     }
 
+    case "locationUpdate": {
+      logWithTiming("Processing locationUpdate route");
+      const messageData = JSON.parse(event.body);
+      const decoded = verifyToken(messageData.token);
+      
+      const locations = await getLocationsForUser(decoded.userId);
+      const processedData = await processWeatherData(locations);
+      
+      await sendMessageToClient(connectionId, {
+        type: "weatherUpdate",
+        data: processedData,
+        timestamp: new Date().toISOString()
+      });
+    
+      return { statusCode: 200, body: JSON.stringify({ message: "Location update sent" }) };
+    }
+
       case "$default": {
         logWithTiming("Processing $default route");
         
