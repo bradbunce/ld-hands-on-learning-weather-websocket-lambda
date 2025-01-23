@@ -39,6 +39,7 @@ const storeConnection = async (connectionId, userId) => {
     const ttl = calculateTTL();
     
     try {
+        // Store the new connection
         await dynamo.send(new PutCommand({
             TableName: CONFIG.CONNECTIONS_TABLE,
             Item: {
@@ -47,8 +48,15 @@ const storeConnection = async (connectionId, userId) => {
                 timestamp: now,
                 ttl: ttl,
                 locationIds: [], // Initialize with empty list
-                status: 'CONNECTED'
-            }
+                status: 'CONNECTED',
+                deviceInfo: {
+                    // Optional: Add more device/browser identification details
+                    userAgent: event.requestContext.identity.userAgent,
+                    sourceIp: event.requestContext.identity.sourceIp
+                }
+            },
+            // Prevent overwriting an existing connection with the same connectionId
+            ConditionExpression: 'attribute_not_exists(connectionId)'
         }));
         
         console.log('Connection stored successfully:', { 
@@ -58,34 +66,37 @@ const storeConnection = async (connectionId, userId) => {
             timestamp: now
         });
     } catch (error) {
-        console.error('Failed to store connection:', {
-            error: error.message,
-            connectionId,
-            userId,
-            detailedError: error
-        });
-        throw error;
+        if (error.name === 'ConditionalCheckFailedException') {
+            console.warn('Connection already exists', { connectionId });
+            // Optionally, you could log this or take specific action
+        } else {
+            console.error('Failed to store connection:', {
+                error: error.message,
+                connectionId,
+                userId,
+                detailedError: error
+            });
+            throw error;
+        }
     }
 };
 
-const removeConnection = async (connectionId, userId) => {
-    console.log('Removing connection:', { connectionId, userId });
+const removeConnection = async (connectionId) => {
+    console.log('Removing connection:', { connectionId });
     
     try {
         await dynamo.send(new DeleteCommand({
             TableName: CONFIG.CONNECTIONS_TABLE,
             Key: { 
-                connectionId: connectionId,
-                userId: String(userId)
+                connectionId: connectionId
             }
         }));
         
-        console.log('Connection removed successfully:', { connectionId, userId });
+        console.log('Connection removed successfully:', { connectionId });
     } catch (error) {
         console.error('Failed to remove connection:', {
             error: error.message,
-            connectionId,
-            userId
+            connectionId
         });
         throw error;
     }
@@ -272,10 +283,9 @@ const verifyToken = (token) => {
     }
 };
 
-const updateConnectionLocations = async (connectionId, userId, locationIds) => {
+const updateConnectionLocations = async (connectionId, locationIds) => {
     console.log('Updating connection locations:', { 
         connectionId,
-        userId,
         locationIds
     });
     
@@ -285,8 +295,7 @@ const updateConnectionLocations = async (connectionId, userId, locationIds) => {
         await dynamo.send(new UpdateCommand({
             TableName: CONFIG.CONNECTIONS_TABLE,
             Key: { 
-                connectionId: connectionId,
-                userId: String(userId)
+                connectionId: connectionId
             },
             UpdateExpression: 'SET locationIds = :locationIds, #ttlAttribute = :ttl, #statusAttribute = :status',
             ExpressionAttributeNames: {
@@ -302,7 +311,6 @@ const updateConnectionLocations = async (connectionId, userId, locationIds) => {
         
         console.log('Locations updated successfully:', { 
             connectionId,
-            userId,
             locationIds,
             newTtl: ttl
         });
@@ -310,7 +318,6 @@ const updateConnectionLocations = async (connectionId, userId, locationIds) => {
         console.error('Failed to update locations:', {
             error: error.message,
             connectionId,
-            userId,
             locationIds,
             detailedError: error
         });
