@@ -181,7 +181,7 @@ exports.handler = async (event) => {
             logWithTiming("Token verified", { userId: decoded.userId });
     
             // Update connection TTL
-            await updateConnectionTTL(connectionId);
+            await updateConnectionTTL(connectionId, decoded.userId);
             logWithTiming("Refreshed connection TTL");
     
             // Retrieve user locations
