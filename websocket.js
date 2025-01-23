@@ -79,12 +79,27 @@ const removeConnection = async (connectionId) => {
     console.log('Removing connection:', { connectionId });
     
     try {
-        await dynamo.send(new DeleteCommand({
+        const scanParams = {
             TableName: CONFIG.CONNECTIONS_TABLE,
-            Key: { 
-                connectionId: connectionId
+            FilterExpression: 'connectionId = :connectionId',
+            ExpressionAttributeValues: {
+                ':connectionId': connectionId
             }
-        }));
+        };
+
+        // First, find the connection to get the userId
+        const { Items } = await dynamo.send(new ScanCommand(scanParams));
+
+        if (Items && Items.length > 0) {
+            const connection = Items[0];
+            await dynamo.send(new DeleteCommand({
+                TableName: CONFIG.CONNECTIONS_TABLE,
+                Key: { 
+                    connectionId: connectionId,
+                    userId: connection.userId
+                }
+            }));
+        }
         
         console.log('Connection removed successfully:', { connectionId });
     } catch (error) {
