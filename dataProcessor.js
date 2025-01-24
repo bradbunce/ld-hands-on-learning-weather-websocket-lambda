@@ -1,92 +1,110 @@
 const processWeatherData = async (weatherData) => {
-    console.log(
-        "Weather data received for processing:",
-        JSON.stringify(weatherData, null, 2)
-    );
+  if (!Array.isArray(weatherData)) {
+      throw new Error("Invalid weather data format");
+  }
 
-    if (!Array.isArray(weatherData)) {
-        console.error("Weather data must be an array");
-        throw new Error("Invalid weather data format");
-    }
+  try {
+      return weatherData.map((location) => {
+          if (location.error) {
+              return {
+                  id: location.locationId,
+                  name: location.locationName,
+                  error: location.error,
+                  timestamp: location.timestamp,
+              };
+          }
 
-    try {
-        return weatherData.map((location) => {
-            // Handle error cases where the location fetch failed
-            if (location.error) {
-                return {
-                    id: location.locationId,
-                    name: location.locationName,
-                    error: location.error,
-                    timestamp: location.timestamp,
-                };
-            }
-
-            try {
-                // If data is already processed (comes from our API wrapper)
-                if (location.temperature !== undefined) {
+          try {
+              if (location.temperature !== undefined) {
                   return {
-                      id: location.location_id,  // Change locationId to location_id
-                      name: location.name,       // name is correct
+                      id: location.location_id,
+                      name: location.name,
+                      coordinates: {
+                          latitude: location.latitude,
+                          longitude: location.longitude
+                      },
+                      metadata: {
+                          country: location.country,
+                          country_code: location.country_code,
+                          region: location.region,
+                          timezone: location.timezone
+                      },
                       weather: {
                           temperature: location.temperature,
                           condition: location.condition,
                           humidity: location.humidity,
                           windSpeed: location.wind_speed,
                           feelsLike: location.feels_like,
-                          lastUpdated: location.last_updated
+                          lastUpdated: location.last_updated,
+                          pressure_in: location.pressure_in,
+                          precip_in: location.precip_in,
+                          cloud: location.cloud,
+                          vis_miles: location.vis_miles,
+                          uv: location.uv,
+                          gust_mph: location.gust_mph,
+                          wind_dir: location.wind_dir,
+                          air_quality: location.air_quality,
+                          is_day: location.is_day,
+                          condition_code: location.condition_code,
+                          condition_icon: location.condition_icon,
+                          wind_degree: location.wind_degree
                       }
                   };
               }
-                
-                // If raw API data
-                if (location.current) {
-                    return {
-                        id: location.id || location.locationId,
-                        name: location.name || location.locationName,
-                        weather: {
-                            temperature: location.current.temp_c,
-                            condition: location.current.condition?.text,
-                            icon: location.current.condition?.icon,
-                            humidity: location.current.humidity,
-                            windSpeed: location.current.wind_kph,
-                            feelsLike: location.current.feelslike_c,
-                            lastUpdated: location.current.last_updated
-                        },
-                        coordinates: location.latitude && location.longitude
-                            ? {
-                                latitude: location.latitude,
-                                longitude: location.longitude,
-                            }
-                            : undefined,
-                        metadata: {
-                            country: location.country || location.country_code,
-                            timezone: location.timezone,
-                            localTime: location.localtime,
-                            provider: "WeatherAPI.com",
-                        }
-                    };
-                }
+              
+              if (location.current) {
+                  return {
+                      id: location.id || location.locationId,
+                      name: location.name || location.locationName,
+                      coordinates: location.latitude && location.longitude ? {
+                          latitude: location.latitude,
+                          longitude: location.longitude
+                      } : undefined,
+                      metadata: {
+                          country: location.country,
+                          country_code: location.country_code,
+                          region: location.region,
+                          timezone: location.timezone,
+                          localTime: location.localtime,
+                          provider: "WeatherAPI.com"
+                      },
+                      weather: {
+                          temperature: location.current.temp_f,
+                          condition: location.current.condition?.text,
+                          humidity: location.current.humidity,
+                          windSpeed: location.current.wind_mph,
+                          feelsLike: location.current.feelslike_f,
+                          lastUpdated: location.current.last_updated,
+                          pressure_in: location.current.pressure_in,
+                          precip_in: location.current.precip_in,
+                          cloud: location.current.cloud,
+                          vis_miles: location.current.vis_miles,
+                          uv: location.current.uv,
+                          gust_mph: location.current.gust_mph,
+                          wind_dir: location.current.wind_dir,
+                          air_quality: location.current.air_quality,
+                          is_day: location.current.is_day,
+                          condition_code: location.current.condition?.code,
+                          condition_icon: location.current.condition?.icon,
+                          wind_degree: location.current.wind_degree
+                      }
+                  };
+              }
 
-                throw new Error("No weather data available");
-            } catch (locationError) {
-                console.error("Error processing individual location:", {
-                    location: location.name || location.locationName,
-                    error: locationError.message,
-                });
-
-                // Return error state for this location
-                return {
-                    id: location.locationId,
-                    name: location.locationName,
-                    error: "Failed to process weather data",
-                    timestamp: new Date().toISOString(),
-                };
-            }
-        });
-    } catch (error) {
-        console.error("Error processing weather data:", error);
-        throw new Error("Failed to process weather data: " + error.message);
-    }
+              throw new Error("No weather data available");
+          } catch (locationError) {
+              console.error("Error processing location:", locationError);
+              return {
+                  id: location.locationId,
+                  name: location.locationName,
+                  error: "Failed to process weather data",
+                  timestamp: new Date().toISOString(),
+              };
+          }
+      });
+  } catch (error) {
+      throw new Error("Failed to process weather data: " + error.message);
+  }
 };
 
 // Validate individual weather data fields
