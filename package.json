@@ -13,7 +13,7 @@
     "zip": "cd dist && zip -r function.zip ."
   },
   "dependencies": {
-    "@bradbunce/launchdarkly-lambda-logger": "^1.0.4",
+    "@bradbunce/launchdarkly-lambda-logger": "^1.0.6",
     "aws-sdk": "^2.1490.0",
     "axios": "^1.3.4",
     "jsonwebtoken": "^9.0.2",
