@@ -1,4 +1,5 @@
 const CONFIG = require('./config');
+const { logger } = require('@bradbunce/launchdarkly-lambda-logger');
 const {
   storeConnection,
   removeConnection,
@@ -12,23 +13,25 @@ const { processWeatherData } = require("./dataProcessor");
 const { getLocationsForUser } = require("./database");
 
 exports.handler = async (event) => {
-  console.log(
-    "Received WebSocket Event:",
-    JSON.stringify({
-      routeKey: event.requestContext.routeKey,
-      connectionId: event.requestContext.connectionId,
-      queryParams: event.queryStringParameters,
-      body: event.body,
-    }, null, 2)
-  );
-
+  await logger.initialize(process.env.LD_SDK_KEY, {
+    kind: 'user',
+    key: 'lambda-user'
+  });
   const connectionId = event.requestContext.connectionId;
   const startTime = Date.now();
 
+  logger.info('Received WebSocket Event', {
+    routeKey: event.requestContext.routeKey,
+    connectionId: event.requestContext.connectionId,
+    queryParams: event.queryStringParameters,
+    body: event.body
+  });
+
   const logWithTiming = (message, details = {}) => {
     const elapsedTime = Date.now() - startTime;
-    console.log(`[${elapsedTime}ms] ${message}`, {
+    logger.info(message, {
       connectionId,
+      elapsedTime,
       ...details,
     });
   };
@@ -42,7 +45,7 @@ exports.handler = async (event) => {
         const providedUserId = event.queryStringParameters?.userId;
     
         if (!token || !providedUserId) {
-            logWithTiming("Missing token or userId", { 
+            logger.warn("Missing token or userId", { 
                 hasToken: !!token, 
                 hasUserId: !!providedUserId 
             });
@@ -65,7 +68,7 @@ exports.handler = async (event) => {
                 decoded.username === providedUserId;
     
             if (!isValidUser) {
-                logWithTiming("UserId validation failed", { 
+                logger.warn("UserId validation failed", { 
                     tokenUserId: decoded.userId, 
                     tokenUsername: decoded.username,
                     providedUserId 
@@ -118,7 +121,7 @@ exports.handler = async (event) => {
             };
     
         } catch (verificationError) {
-            logWithTiming("Token verification failed", { 
+            logger.error("Token verification failed", { 
                 error: verificationError.message,
                 connectionId 
             });
@@ -160,7 +163,7 @@ exports.handler = async (event) => {
         try {
             // Check if token is provided
             if (!token) {
-                logWithTiming("No token provided", { connectionId });
+                logger.warn("No token provided", { connectionId });
                 
                 await sendMessageToClient(connectionId, {
                     type: "error",
@@ -218,9 +221,10 @@ exports.handler = async (event) => {
     
         } catch (error) {
             // Detailed error handling
-            logWithTiming("GetWeather failed", { 
+            logger.error("GetWeather failed", { 
                 error: error.message,
-                connectionId 
+                connectionId,
+                stack: error.stack
             });
     
             // Send specific error messages
@@ -231,7 +235,7 @@ exports.handler = async (event) => {
                     code: error.name === 'TokenExpiredError' ? 'TOKEN_EXPIRED' : 'UNKNOWN_ERROR'
                 });
             } catch (sendError) {
-                logWithTiming("Failed to send error message", { 
+                logger.error("Failed to send error message", { 
                     originalError: error.message,
                     sendError: sendError.message 
                 });
@@ -317,23 +321,27 @@ exports.handler = async (event) => {
             }
 
             default:
-              logWithTiming("Unknown action received", { action: messageData.action });
+              logger.warn("Unknown action received", { action: messageData.action });
               return { statusCode: 400, body: JSON.stringify({ message: "Unknown action" }) };
           }
         } catch (error) {
-          logWithTiming("Default route error", { error: error.message });
+          logger.error("Default route error", { 
+            error: error.message,
+            stack: error.stack
+          });
           throw error;
         }
       }
 
       default:
-        logWithTiming("Unknown route");
+        logger.warn("Unknown route", { routeKey: event.requestContext.routeKey });
         return { statusCode: 400, body: JSON.stringify({ message: "Unknown route" }) };
     }
   } catch (error) {
-    logWithTiming("Unexpected error", {
+    logger.error("Unexpected error", {
       error: error.message,
-      stack: error.stack
+      stack: error.stack,
+      connectionId
     });
 
     try {
@@ -343,13 +351,18 @@ exports.handler = async (event) => {
         timestamp: new Date().toISOString()
       });
     } catch (sendError) {
-      logWithTiming("Failed to send error message", { error: sendError.message });
+      logger.error("Failed to send error message", { 
+        error: sendError.message,
+        originalError: error.message,
+        connectionId
+      });
     }
 
     return { statusCode: 500, body: JSON.stringify({ message: "Internal server error" }) };
   } finally {
-    logWithTiming("Request completed", { 
+    logger.info("Request completed", { 
       totalTime: Date.now() - startTime 
     });
+    await logger.close();
   }
 };

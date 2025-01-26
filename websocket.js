@@ -2,6 +2,7 @@ const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, PutCommand, DeleteCommand, UpdateCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
 const { ApiGatewayManagementApiClient, PostToConnectionCommand } = require('@aws-sdk/client-apigatewaymanagementapi');
 const jwt = require('jsonwebtoken');
+const { logger } = require('@bradbunce/launchdarkly-lambda-logger');
 const CONFIG = require('./config');
 
 // Initialize DynamoDB client
@@ -33,7 +34,7 @@ const apiGateway = new ApiGatewayManagementApiClient({
 const calculateTTL = () => Math.floor(Date.now() / 1000) + (CONFIG.CONNECTION_TTL_HOURS * 60 * 60);
 
 const storeConnection = async (connectionId, userId) => {
-    console.log('Storing connection:', { connectionId, userId });
+    logger.info('Storing connection', { connectionId, userId });
     
     const now = Date.now();
     const ttl = calculateTTL();
@@ -54,7 +55,7 @@ const storeConnection = async (connectionId, userId) => {
             ConditionExpression: 'attribute_not_exists(connectionId)'
         }));
         
-        console.log('Connection stored successfully:', { 
+        logger.info('Connection stored successfully', { 
             connectionId, 
             userId,
             ttl,
@@ -62,9 +63,9 @@ const storeConnection = async (connectionId, userId) => {
         });
     } catch (error) {
         if (error.name === 'ConditionalCheckFailedException') {
-            console.warn('Connection already exists', { connectionId });
+            logger.warn('Connection already exists', { connectionId });
         } else {
-            console.error('Failed to store connection:', {
+            logger.error('Failed to store connection', {
                 error: error.message,
                 connectionId,
                 userId,
@@ -76,7 +77,7 @@ const storeConnection = async (connectionId, userId) => {
 };
 
 const removeConnection = async (connectionId) => {
-    console.log('Removing connection:', { connectionId });
+    logger.info('Removing connection', { connectionId });
     
     try {
         const scanParams = {
@@ -101,9 +102,9 @@ const removeConnection = async (connectionId) => {
             }));
         }
         
-        console.log('Connection removed successfully:', { connectionId });
+        logger.info('Connection removed successfully', { connectionId });
     } catch (error) {
-        console.error('Failed to remove connection:', {
+        logger.error('Failed to remove connection', {
             error: error.message,
             connectionId
         });
@@ -112,7 +113,7 @@ const removeConnection = async (connectionId) => {
 };
 
 const getActiveConnections = async () => {
-    console.log('Getting active connections');
+    logger.info('Getting active connections');
     
     const now = Math.floor(Date.now() / 1000);
     
@@ -126,17 +127,17 @@ const getActiveConnections = async () => {
             }
         }));
         
-        console.log('Retrieved active connections:', { count: Items?.length || 0 });
+        logger.info('Retrieved active connections', { count: Items?.length || 0 });
         return Items || [];
     } catch (error) {
-        console.error('Failed to get active connections:', error.message);
+        logger.error('Failed to get active connections', { error: error.message });
         throw error;
     }
 };
 
 const sendMessageToClient = async (connectionId, payload) => {
     try {
-        console.log('Starting message send to client:', { 
+        logger.info('Starting message send to client', { 
             connectionId, 
             payloadType: payload.type 
         });
@@ -148,17 +149,17 @@ const sendMessageToClient = async (connectionId, payload) => {
             })
         );
         
-        console.log('Message sent successfully');
+        logger.info('Message sent successfully');
         return true;
     } catch (error) {
         // Only mark as stale if we get a 410 GONE status
         if (error.$metadata?.httpStatusCode === 410) {
-            console.log('Connection gone, removing:', { connectionId });
+            logger.info('Connection gone, removing', { connectionId });
             await removeConnection(connectionId);
             return false;
         }
         
-        console.error('Error sending message:', {
+        logger.error('Error sending message', {
             error: error.message,
             code: error.$metadata?.httpStatusCode,
             connectionId
@@ -168,7 +169,7 @@ const sendMessageToClient = async (connectionId, payload) => {
 };
 
 const updateConnectionTTL = async (connectionId, userId) => {
-    console.log('Updating connection TTL:', { connectionId, userId });
+    logger.info('Updating connection TTL', { connectionId, userId });
     
     const ttl = calculateTTL();
     
@@ -190,13 +191,13 @@ const updateConnectionTTL = async (connectionId, userId) => {
             }
         }));
         
-        console.log('TTL updated successfully:', { 
+        logger.info('TTL updated successfully', { 
             connectionId,
             userId,
             newTtl: ttl
         });
     } catch (error) {
-        console.error('Failed to update TTL:', {
+        logger.error('Failed to update TTL', {
             error: error.message,
             connectionId,
             userId,
@@ -209,19 +210,19 @@ const updateConnectionTTL = async (connectionId, userId) => {
 const verifyToken = (token) => {
     // Validate environment setup
     if (!process.env.JWT_SECRET) {
-        console.error('JWT Configuration Error: JWT_SECRET environment variable is not set');
+        logger.error('JWT Configuration Error: JWT_SECRET environment variable is not set');
         throw new Error('JWT configuration error');
     }
 
     // Validate token input
     if (!token) {
-        console.error('Token Verification Failed: No token provided');
+        logger.error('Token Verification Failed: No token provided');
         throw new Error('No token provided');
     }
 
     try {
         // Log basic token details for debugging
-        console.log('Token Verification Attempt', {
+        logger.info('Token Verification Attempt', {
             tokenLength: token.length,
             tokenStart: token.substring(0, 20)
         });
@@ -231,7 +232,7 @@ const verifyToken = (token) => {
 
         // Ensure critical fields exist
         if (!decoded.userId || !decoded.username) {
-            console.error('Invalid Token: Missing required fields', {
+            logger.error('Invalid Token: Missing required fields', {
                 missingUserId: !decoded.userId,
                 missingUsername: !decoded.username
             });
@@ -248,7 +249,7 @@ const verifyToken = (token) => {
         };
 
         // Log successful verification details
-        console.log('Token Verified Successfully', {
+        logger.info('Token Verified Successfully', {
             userId: verifiedPayload.userId,
             username: verifiedPayload.username,
             expiresAt: new Date(decoded.exp * 1000).toISOString()
@@ -258,7 +259,7 @@ const verifyToken = (token) => {
 
     } catch (error) {
         // Detailed error logging
-        console.error('Token Verification Failed', {
+        logger.error('Token Verification Failed', {
             name: error.name,
             message: error.message
         });
@@ -266,25 +267,25 @@ const verifyToken = (token) => {
         // Specific error handling
         switch (error.name) {
             case 'TokenExpiredError':
-                console.warn('Token Expired', {
+                logger.warn('Token Expired', {
                     message: 'The token has expired'
                 });
                 throw new Error('Token has expired');
 
             case 'JsonWebTokenError':
-                console.warn('Invalid Token', {
+                logger.warn('Invalid Token', {
                     message: 'The token signature is invalid'
                 });
                 throw new Error('Invalid token signature');
 
             case 'NotBeforeError':
-                console.warn('Token Not Active', {
+                logger.warn('Token Not Active', {
                     message: 'The token is not yet active'
                 });
                 throw new Error('Token is not yet active');
 
             default:
-                console.error('Unhandled Token Verification Error', {
+                logger.error('Unhandled Token Verification Error', {
                     errorDetails: error
                 });
                 throw new Error('Token verification failed');
@@ -293,7 +294,7 @@ const verifyToken = (token) => {
 };
 
 const updateConnectionLocations = async (connectionId, locationIds) => {
-    console.log('Updating connection locations:', { 
+    logger.info('Updating connection locations', { 
         connectionId,
         locationIds
     });
@@ -318,13 +319,13 @@ const updateConnectionLocations = async (connectionId, locationIds) => {
             }
         }));
         
-        console.log('Locations updated successfully:', { 
+        logger.info('Locations updated successfully', { 
             connectionId,
             locationIds,
             newTtl: ttl
         });
     } catch (error) {
-        console.error('Failed to update locations:', {
+        logger.error('Failed to update locations', {
             error: error.message,
             connectionId,
             locationIds,
@@ -338,7 +339,7 @@ const cleanupUserConnections = async (userId) => {
     // Explicitly convert userId to string
     const stringUserId = String(userId);
     
-    console.log('Cleaning up connections for user:', { userId: stringUserId });
+    logger.info('Cleaning up connections for user', { userId: stringUserId });
     
     try {
         // Query for all connections belonging to this user
@@ -351,11 +352,11 @@ const cleanupUserConnections = async (userId) => {
         }));
 
         if (!Items?.length) {
-            console.log('No connections found for user:', { userId: stringUserId });
+            logger.info('No connections found for user', { userId: stringUserId });
             return;
         }
 
-        console.log('Found connections to cleanup:', { 
+        logger.info('Found connections to cleanup', { 
             userId: stringUserId, 
             connectionCount: Items.length,
             connections: Items.map(item => item.connectionId)
@@ -371,12 +372,12 @@ const cleanupUserConnections = async (userId) => {
 
         await Promise.all(deletePromises);
 
-        console.log('Successfully cleaned up user connections:', {
+        logger.info('Successfully cleaned up user connections', {
             userId: stringUserId,
             cleanedCount: Items.length
         });
     } catch (error) {
-        console.error('Error cleaning up user connections:', {
+        logger.error('Error cleaning up user connections', {
             error: error.message,
             userId: stringUserId
         });
@@ -395,7 +396,7 @@ const broadcastToUserConnections = async (userId, payload) => {
         }));
 
         if (!Items?.length) {
-            console.log('No active connections for user:', userId);
+            logger.info('No active connections for user', { userId });
             return;
         }
 
@@ -406,7 +407,7 @@ const broadcastToUserConnections = async (userId, payload) => {
         await Promise.all(sendPromises);
         
     } catch (error) {
-        console.error('Error broadcasting to user connections:', {
+        logger.error('Error broadcasting to user connections', {
             error: error.message,
             userId
         });

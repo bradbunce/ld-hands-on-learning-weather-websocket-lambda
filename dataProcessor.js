@@ -1,11 +1,19 @@
+const { logger } = require('@bradbunce/launchdarkly-lambda-logger');
+
 const processWeatherData = async (weatherData) => {
-  console.log(
-      "Weather data received for processing:",
-      JSON.stringify(weatherData, null, 2)
-  );
+  logger.info("Weather data received for processing", { 
+      locationCount: weatherData?.length,
+      locations: weatherData?.map(loc => ({
+          id: loc.location_id || loc.locationId,
+          name: loc.name || loc.locationName
+      }))
+  });
 
   if (!Array.isArray(weatherData)) {
-      console.error("Weather data must be an array");
+      logger.error("Weather data must be an array", { 
+          receivedType: typeof weatherData,
+          value: weatherData 
+      });
       throw new Error("Invalid weather data format");
   }
 
@@ -69,9 +77,11 @@ const processWeatherData = async (weatherData) => {
 
               throw new Error("No weather data available");
           } catch (locationError) {
-              console.error("Error processing individual location:", {
+              logger.error("Error processing individual location", {
                   location: location.name || location.locationName,
+                  locationId: location.location_id || location.locationId,
                   error: locationError.message,
+                  stack: locationError.stack
               });
 
               // Return error state for this location
@@ -84,7 +94,10 @@ const processWeatherData = async (weatherData) => {
           }
       });
   } catch (error) {
-      console.error("Error processing weather data:", error);
+      logger.error("Error processing weather data", { 
+          error: error.message,
+          stack: error.stack
+      });
       throw new Error("Failed to process weather data: " + error.message);
   }
 };
