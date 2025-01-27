@@ -1,5 +1,24 @@
+/**
+ * Weather Data Processing Module
+ * 
+ * Processes and transforms weather data from various sources into a standardized format.
+ * Handles data validation, error cases, and prepares data for client consumption.
+ * 
+ * Features:
+ * - Standardizes weather data from multiple sources
+ * - Handles error cases and data validation
+ * - Provides data transformation for caching
+ */
+
 const { logger } = require('@bradbunce/launchdarkly-lambda-logger');
 
+/**
+ * Processes raw weather data into a standardized format
+ * 
+ * @param {Array} weatherData - Array of weather data objects from various sources
+ * @returns {Array} Processed and standardized weather data
+ * @throws {Error} If data processing fails
+ */
 const processWeatherData = async (weatherData) => {
   logger.info("Weather data received for processing", { 
       locationCount: weatherData?.length,

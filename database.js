@@ -1,3 +1,15 @@
+/**
+ * Database Operations Module
+ * 
+ * Manages MySQL database connections and operations for weather data persistence.
+ * Features:
+ * - Connection pooling for primary and replica databases
+ * - Retry mechanisms with exponential backoff
+ * - Transaction management
+ * - Error handling and logging
+ * - Table validation and creation
+ */
+
 const mysql = require('mysql2/promise');
 const { queries, tableQueries } = require('./queries');
 

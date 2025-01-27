@@ -1,3 +1,11 @@
+/**
+ * AWS Lambda WebSocket Handler for Real-time Weather Updates
+ * 
+ * This Lambda function manages WebSocket connections for a real-time weather update service.
+ * It handles connection lifecycle (connect/disconnect), authentication, and weather data delivery
+ * to connected clients.
+ */
+
 const CONFIG = require('./config');
 const { logger } = require('@bradbunce/launchdarkly-lambda-logger');
 const {
@@ -12,6 +20,12 @@ const {
 const { processWeatherData } = require("./dataProcessor");
 const { getLocationsForUser } = require("./database");
 
+/**
+ * Main Lambda handler function that processes WebSocket events
+ * 
+ * @param {Object} event - AWS Lambda event object containing WebSocket event details
+ * @returns {Object} Response object with statusCode and body
+ */
 exports.handler = async (event) => {
   await logger.initialize(process.env.LD_SDK_KEY, {
     kind: 'user',

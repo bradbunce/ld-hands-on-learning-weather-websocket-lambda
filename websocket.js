@@ -1,3 +1,17 @@
+/**
+ * WebSocket Connection Management Module
+ * 
+ * Handles WebSocket connection lifecycle, authentication, and message delivery using
+ * DynamoDB for connection persistence and API Gateway for message broadcasting.
+ * 
+ * Key features:
+ * - Connection storage and management in DynamoDB
+ * - JWT-based authentication
+ * - Real-time message delivery via API Gateway
+ * - Connection TTL management
+ * - Error handling and logging
+ */
+
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, PutCommand, DeleteCommand, UpdateCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
 const { ApiGatewayManagementApiClient, PostToConnectionCommand } = require('@aws-sdk/client-apigatewaymanagementapi');
