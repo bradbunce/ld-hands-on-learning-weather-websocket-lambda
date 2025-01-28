@@ -27,11 +27,13 @@ const { getLocationsForUser } = require("./database");
  * @returns {Object} Response object with statusCode and body
  */
 exports.handler = async (event) => {
+  const connectionId = event.requestContext.connectionId;
+  // Initialize logger with basic context - will be updated with user info when available
   await logger.initialize(process.env.LD_SDK_KEY, {
     kind: 'user',
-    key: 'lambda-user'
+    key: connectionId, // Use connectionId as initial key
+    anonymous: true
   });
-  const connectionId = event.requestContext.connectionId;
   const startTime = Date.now();
 
   logger.info('Received WebSocket Event', {
@@ -73,6 +75,14 @@ exports.handler = async (event) => {
     
         try {
             const decoded = verifyToken(token);
+            
+            // Update LaunchDarkly context with actual user info
+            await logger.initialize(process.env.LD_SDK_KEY, {
+              kind: 'user',
+              key: String(decoded.userId),
+              name: decoded.username,
+              anonymous: false
+            });
             
             // Allow connection if either:
             // 1. Provided userId matches the numeric user ID from token
@@ -195,6 +205,15 @@ exports.handler = async (event) => {
     
             // Verify token
             const decoded = verifyToken(token);
+            
+            // Update LaunchDarkly context with user info
+            await logger.initialize(process.env.LD_SDK_KEY, {
+              kind: 'user',
+              key: String(decoded.userId),
+              name: decoded.username,
+              anonymous: false
+            });
+            
             logWithTiming("Token verified", { userId: decoded.userId });
     
             // Update connection TTL
@@ -271,6 +290,14 @@ exports.handler = async (event) => {
       const messageData = JSON.parse(event.body);
       const decoded = verifyToken(messageData.token);
       
+      // Update LaunchDarkly context with user info
+      await logger.initialize(process.env.LD_SDK_KEY, {
+        kind: 'user',
+        key: String(decoded.userId),
+        name: decoded.username,
+        anonymous: false
+      });
+      
       const locations = await getLocationsForUser(decoded.userId);
       const processedData = await processWeatherData(locations);
       
@@ -289,6 +316,14 @@ exports.handler = async (event) => {
         try {
           const messageData = JSON.parse(event.body);
           const decoded = verifyToken(messageData.token);
+          
+          // Update LaunchDarkly context with user info
+          await logger.initialize(process.env.LD_SDK_KEY, {
+            kind: 'user',
+            key: String(decoded.userId),
+            name: decoded.username,
+            anonymous: false
+          });
           
           switch (messageData.action) {
             case "subscribe": {
