@@ -28,8 +28,12 @@ const { getLocationsForUser } = require("./database");
  */
 exports.handler = async (event) => {
   const connectionId = event.requestContext.connectionId;
-  // Initialize logger with basic context
-  await logger.initialize(process.env.LD_SDK_KEY);
+  // Initialize logger with Lambda function context
+  await logger.initialize(process.env.LD_SDK_KEY, {
+    kind: 'service',
+    key: 'weather-app-websocket-lambda',
+    name: 'Weather App WebSocket Lambda'
+  });
   const startTime = Date.now();
 
   logger.info('Received WebSocket Event', {
@@ -72,13 +76,6 @@ exports.handler = async (event) => {
         try {
             const decoded = verifyToken(token);
             
-            // Update LaunchDarkly context with actual user info
-            await logger.identify({
-              kind: 'user',
-              key: String(decoded.userId),
-              name: decoded.username,
-              anonymous: false
-            });
             
             // Allow connection if either:
             // 1. Provided userId matches the numeric user ID from token
@@ -202,13 +199,6 @@ exports.handler = async (event) => {
             // Verify token
             const decoded = verifyToken(token);
             
-            // Update LaunchDarkly context with user info
-            await logger.identify({
-              kind: 'user',
-              key: String(decoded.userId),
-              name: decoded.username,
-              anonymous: false
-            });
             
             logWithTiming("Token verified", { userId: decoded.userId });
     
@@ -286,13 +276,6 @@ exports.handler = async (event) => {
       const messageData = JSON.parse(event.body);
       const decoded = verifyToken(messageData.token);
       
-      // Update LaunchDarkly context with user info
-      await logger.identify({
-        kind: 'user',
-        key: String(decoded.userId),
-        name: decoded.username,
-        anonymous: false
-      });
       
       const locations = await getLocationsForUser(decoded.userId);
       const processedData = await processWeatherData(locations);
@@ -313,13 +296,6 @@ exports.handler = async (event) => {
           const messageData = JSON.parse(event.body);
           const decoded = verifyToken(messageData.token);
           
-          // Update LaunchDarkly context with user info
-          await logger.identify({
-            kind: 'user',
-            key: String(decoded.userId),
-            name: decoded.username,
-            anonymous: false
-          });
           
           switch (messageData.action) {
             case "subscribe": {
