@@ -8,7 +8,8 @@ const mockLDClient = {
   waitForInitialization: jest.fn().mockResolvedValue(),
   on: jest.fn(),
   variation: jest.fn(),
-  close: jest.fn().mockResolvedValue()
+  close: jest.fn().mockResolvedValue(),
+  flush: jest.fn().mockResolvedValue()
 };
 
 jest.mock('@launchdarkly/node-server-sdk', () => ({

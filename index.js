@@ -29,7 +29,6 @@ const { getLocationsForUser } = require("./database");
  */
 exports.handler = async (event) => {
   const connectionId = event.requestContext.connectionId;
-  
   let ldClient;
   try {
     // Initialize LaunchDarkly client with debug logging
@@ -60,15 +59,9 @@ exports.handler = async (event) => {
   });
 
   const context = {
-    kind: 'multi',
-    user: {
-      key: decoded.userId,
-      name: decoded.username
-    },
-    service: {
-      key: 'weather-app-websocket-lambda',
-      name: 'Weather App WebSocket Lambda'
-    }
+    kind: 'service',
+    key: 'weather-app-websocket-lambda',
+    name: 'Weather App WebSocket Lambda'
   };
 
   // Initialize logger with our LaunchDarkly client and flag key
