@@ -28,12 +28,8 @@ const { getLocationsForUser } = require("./database");
  */
 exports.handler = async (event) => {
   const connectionId = event.requestContext.connectionId;
-  // Initialize logger with basic context - will be updated with user info when available
-  await logger.initialize(process.env.LD_SDK_KEY, {
-    kind: 'user',
-    key: connectionId, // Use connectionId as initial key
-    anonymous: true
-  });
+  // Initialize logger with basic context
+  await logger.initialize(process.env.LD_SDK_KEY);
   const startTime = Date.now();
 
   logger.info('Received WebSocket Event', {
@@ -77,7 +73,7 @@ exports.handler = async (event) => {
             const decoded = verifyToken(token);
             
             // Update LaunchDarkly context with actual user info
-            await logger.initialize(process.env.LD_SDK_KEY, {
+            await logger.identify({
               kind: 'user',
               key: String(decoded.userId),
               name: decoded.username,
@@ -207,7 +203,7 @@ exports.handler = async (event) => {
             const decoded = verifyToken(token);
             
             // Update LaunchDarkly context with user info
-            await logger.initialize(process.env.LD_SDK_KEY, {
+            await logger.identify({
               kind: 'user',
               key: String(decoded.userId),
               name: decoded.username,
@@ -291,7 +287,7 @@ exports.handler = async (event) => {
       const decoded = verifyToken(messageData.token);
       
       // Update LaunchDarkly context with user info
-      await logger.initialize(process.env.LD_SDK_KEY, {
+      await logger.identify({
         kind: 'user',
         key: String(decoded.userId),
         name: decoded.username,
@@ -318,7 +314,7 @@ exports.handler = async (event) => {
           const decoded = verifyToken(messageData.token);
           
           // Update LaunchDarkly context with user info
-          await logger.initialize(process.env.LD_SDK_KEY, {
+          await logger.identify({
             kind: 'user',
             key: String(decoded.userId),
             name: decoded.username,
