@@ -196,13 +196,16 @@ The service uses LaunchDarkly for both dynamic logging control and feature flag 
 
 #### Dynamic Log Levels
    - Controlled by `lambda-console-logging` flag in LaunchDarkly
+   - Flag is evaluated on every log call to determine if that level should be logged
    - Log levels (increasing verbosity):
-     * 0: FATAL (💀)
-     * 1: ERROR (🔴)
-     * 2: WARN (🟡)
-     * 3: INFO (🔵)
-     * 4: DEBUG (⚪)
-     * 5: TRACE (🟣)
+     * 0: FATAL (💀) - Unrecoverable errors
+     * 1: ERROR (🔴) - Severe but non-fatal errors
+     * 2: WARN (🟡) - Potentially harmful situations
+     * 3: INFO (🔵) - General operational messages
+     * 4: DEBUG (⚪) - Detailed debugging information
+     * 5: TRACE (🟣) - Very detailed debugging information
+   - Each level includes all levels above it (e.g., INFO includes FATAL, ERROR, and WARN)
+   - Flag value determines maximum log level (e.g., value of 3 enables INFO and below)
 
 #### Flag Monitoring
    ```javascript
@@ -215,6 +218,21 @@ The service uses LaunchDarkly for both dynamic logging control and feature flag 
      logger.debug('LaunchDarkly flag change detected:', { settings });
    });
    ```
+
+   The logger evaluates the `lambda-console-logging` flag before each log operation:
+   ```javascript
+   async getCurrentLogLevel() {
+     if (!this.ldClient) return LogLevel.ERROR;
+     return await this.ldClient.variation(this.FLAG_KEY, this.context, LogLevel.ERROR);
+   }
+
+   async shouldLog(level) {
+     const currentLevel = await this.getCurrentLogLevel();
+     return level <= currentLevel;
+   }
+   ```
+
+   This allows for real-time log level adjustments without redeploying the Lambda function.
 
 #### Resource Cleanup
    ```javascript

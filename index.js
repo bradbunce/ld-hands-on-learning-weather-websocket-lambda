@@ -52,6 +52,9 @@ exports.handler = async (event) => {
 
   const startTime = Date.now();
 
+  // Log at different levels to see flag evaluations
+  logger.trace('Trace level details:', { event });
+  logger.debug('Debug level connection info:', { connectionId });
   logger.info('Received WebSocket Event', {
     routeKey: event.requestContext.routeKey,
     connectionId: event.requestContext.connectionId,
