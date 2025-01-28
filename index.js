@@ -60,9 +60,15 @@ exports.handler = async (event) => {
   });
 
   const context = {
-    kind: 'service',
-    key: 'weather-app-websocket-lambda',
-    name: 'Weather App WebSocket Lambda'
+    kind: 'multi',
+    user: {
+      key: decoded.userId,
+      name: decoded.username
+    },
+    service: {
+      key: 'weather-app-websocket-lambda',
+      name: 'Weather App WebSocket Lambda'
+    }
   };
 
   // Initialize logger with our LaunchDarkly client and flag key
@@ -432,9 +438,9 @@ exports.handler = async (event) => {
       logger.info("Request completed", { 
         totalTime: Date.now() - startTime 
       });
-  
-      // Add small delay to ensure flag evaluations are sent
-      await new Promise(resolve => setTimeout(resolve, 100));
+    
+      // Flush events before closing
+      await ldClient.flush();
       
       await Promise.all([
         logger.close(),
