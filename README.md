@@ -171,7 +171,68 @@ The service implements comprehensive error handling:
 
 ## Monitoring
 
-- Extensive logging using LaunchDarkly logger
+### LaunchDarkly Integration
+
+The service uses LaunchDarkly for both dynamic logging control and feature flag management. The implementation is optimized for AWS Lambda's execution environment:
+
+#### Lambda-Optimized Implementation
+- Creates a single LaunchDarkly client per Lambda invocation
+- Passes the client to the logger utility to avoid duplicate connections
+- Properly handles initialization and cleanup within Lambda's lifecycle
+- Monitors flag changes during the Lambda execution
+
+#### Client Setup
+   ```javascript
+   const ldClient = LaunchDarkly.init(process.env.LD_SDK_KEY);
+   await ldClient.waitForInitialization();
+   
+   // Pass client to logger utility
+   await logger.initialize(ldClient, {
+     kind: 'service',
+     key: 'weather-app-websocket-lambda',
+     name: 'Weather App WebSocket Lambda'
+   });
+   ```
+
+#### Dynamic Log Levels
+   - Controlled by `lambda-console-logging` flag in LaunchDarkly
+   - Log levels (increasing verbosity):
+     * 0: FATAL (💀)
+     * 1: ERROR (🔴)
+     * 2: WARN (🟡)
+     * 3: INFO (🔵)
+     * 4: DEBUG (⚪)
+     * 5: TRACE (🟣)
+
+#### Flag Monitoring
+   ```javascript
+   // Monitor flag updates
+   ldClient.on('update', () => {
+     logger.debug('LaunchDarkly flag update received');
+   });
+
+   ldClient.on('change', (settings) => {
+     logger.debug('LaunchDarkly flag change detected:', { settings });
+   });
+   ```
+
+#### Resource Cleanup
+   ```javascript
+   // Properly close both logger and client
+   await Promise.all([
+     logger.close(),
+     ldClient.close()
+   ]);
+   ```
+
+#### Benefits
+- Single connection to LaunchDarkly per Lambda invocation
+- Efficient resource usage
+- Real-time flag updates during execution
+- Proper cleanup to prevent resource leaks
+- Ability to monitor flag changes for debugging
+
+### Additional Monitoring
 - Performance metrics for database operations
 - Connection lifecycle tracking
 - Error tracking and reporting

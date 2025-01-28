@@ -7,6 +7,7 @@
  */
 
 const CONFIG = require('./config');
+const LaunchDarkly = require('@launchdarkly/node-server-sdk');
 const { logger } = require('@bradbunce/launchdarkly-lambda-logger');
 const {
   storeConnection,
@@ -28,12 +29,27 @@ const { getLocationsForUser } = require("./database");
  */
 exports.handler = async (event) => {
   const connectionId = event.requestContext.connectionId;
-  // Initialize logger with Lambda function context
-  await logger.initialize(process.env.LD_SDK_KEY, {
+  
+  // Initialize LaunchDarkly client
+  const ldClient = LaunchDarkly.init(process.env.LD_SDK_KEY);
+  await ldClient.waitForInitialization();
+  
+  // Set up flag change listeners for debugging
+  ldClient.on('update', () => {
+    logger.debug('LaunchDarkly flag update received');
+  });
+
+  ldClient.on('change', (settings) => {
+    logger.debug('LaunchDarkly flag change detected:', { settings });
+  });
+
+  // Initialize logger with our LaunchDarkly client
+  await logger.initialize(ldClient, {
     kind: 'service',
     key: 'weather-app-websocket-lambda',
     name: 'Weather App WebSocket Lambda'
   });
+
   const startTime = Date.now();
 
   logger.info('Received WebSocket Event', {
@@ -384,6 +400,9 @@ exports.handler = async (event) => {
     logger.info("Request completed", { 
       totalTime: Date.now() - startTime 
     });
-    await logger.close();
+    await Promise.all([
+      logger.close(),
+      ldClient.close()
+    ]);
   }
 };
