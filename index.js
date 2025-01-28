@@ -30,9 +30,25 @@ const { getLocationsForUser } = require("./database");
 exports.handler = async (event) => {
   const connectionId = event.requestContext.connectionId;
   
-  // Initialize LaunchDarkly client
-  const ldClient = LaunchDarkly.init(process.env.LD_SDK_KEY);
-  await ldClient.waitForInitialization();
+  let ldClient;
+  try {
+    // Initialize LaunchDarkly client with debug logging
+    ldClient = LaunchDarkly.init(process.env.LD_SDK_KEY, {
+      logger: LaunchDarkly.basicLogger({
+        level: 'debug',
+        destination: (level, message) => {
+          console.debug(`[LaunchDarkly SDK ${level}] ${message}`);
+        }
+      })
+    });
+    
+    await ldClient.waitForInitialization();
+  } catch (error) {
+    logger.error('LaunchDarkly initialization failed:', {
+      error: error.message
+    });
+    throw error;
+  }
   
   // Set up flag change listeners for debugging
   ldClient.on('update', () => {
@@ -43,11 +59,23 @@ exports.handler = async (event) => {
     logger.debug('LaunchDarkly flag change detected:', { settings });
   });
 
-  // Initialize logger with our LaunchDarkly client
-  await logger.initialize(ldClient, {
+  const context = {
     kind: 'service',
     key: 'weather-app-websocket-lambda',
     name: 'Weather App WebSocket Lambda'
+  };
+
+  // Initialize logger with our LaunchDarkly client and flag key
+  await logger.initialize(ldClient, context, {
+    logLevelFlagKey: process.env.LD_LOG_LEVEL_FLAG_KEY
+  });
+
+  // Explicitly check current log level for debugging
+  const currentLogLevel = await ldClient.variation(process.env.LD_LOG_LEVEL_FLAG_KEY, context, 'info');
+  logger.debug('Current log level configuration:', { 
+    level: currentLogLevel, 
+    context,
+    flagKey: process.env.LD_LOG_LEVEL_FLAG_KEY
   });
 
   const startTime = Date.now();
@@ -73,6 +101,7 @@ exports.handler = async (event) => {
 
   try {
     switch (event.requestContext.routeKey) {
+
       case "$connect": {
         logWithTiming("Processing $connect route");
         const connectionId = event.requestContext.connectionId;
@@ -376,36 +405,40 @@ exports.handler = async (event) => {
       default:
         logger.warn("Unknown route", { routeKey: event.requestContext.routeKey });
         return { statusCode: 400, body: JSON.stringify({ message: "Unknown route" }) };
-    }
-  } catch (error) {
-    logger.error("Unexpected error", {
-      error: error.message,
-      stack: error.stack,
-      connectionId
-    });
-
-    try {
-      await sendMessageToClient(connectionId, {
-        type: "error",
-        message: "An unexpected error occurred",
-        timestamp: new Date().toISOString()
-      });
-    } catch (sendError) {
-      logger.error("Failed to send error message", { 
-        error: sendError.message,
-        originalError: error.message,
+      }
+    } catch (error) {
+      logger.error("Unexpected error", {
+        error: error.message,
+        stack: error.stack,
         connectionId
       });
+  
+      try {
+        await sendMessageToClient(connectionId, {
+          type: "error",
+          message: "An unexpected error occurred",
+          timestamp: new Date().toISOString()
+        });
+      } catch (sendError) {
+        logger.error("Failed to send error message", { 
+          error: sendError.message,
+          originalError: error.message,
+          connectionId
+        });
+      }
+  
+      return { statusCode: 500, body: JSON.stringify({ message: "Internal server error" }) };
+    } finally {
+      logger.info("Request completed", { 
+        totalTime: Date.now() - startTime 
+      });
+  
+      // Add small delay to ensure flag evaluations are sent
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      await Promise.all([
+        logger.close(),
+        ldClient.close()
+      ]);
     }
-
-    return { statusCode: 500, body: JSON.stringify({ message: "Internal server error" }) };
-  } finally {
-    logger.info("Request completed", { 
-      totalTime: Date.now() - startTime 
-    });
-    await Promise.all([
-      logger.close(),
-      ldClient.close()
-    ]);
-  }
-};
+  };

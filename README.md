@@ -74,9 +74,10 @@ DB_NAME=                     # Database name
 # Authentication
 JWT_SECRET=                  # Secret for JWT verification
 
-# Logging
-LD_SDK_KEY=                  # LaunchDarkly SDK key for logging
-LD_SDK_LOG_LEVEL=            # LaunchDarkly SDK log level
+# LaunchDarkly Configuration
+LD_SDK_KEY=                  # LaunchDarkly SDK key
+LD_SDK_LOG_LEVEL=            # LaunchDarkly SDK log level (error, warn, info, debug)
+LD_LOG_LEVEL_FLAG_KEY=       # LaunchDarkly flag key for dynamic log level control
 ```
 
 ### Installation
@@ -191,11 +192,13 @@ The service uses LaunchDarkly for both dynamic logging control and feature flag 
      kind: 'service',
      key: 'weather-app-websocket-lambda',
      name: 'Weather App WebSocket Lambda'
+   }, {
+     logLevelFlagKey: process.env.LD_LOG_LEVEL_FLAG_KEY
    });
    ```
 
 #### Dynamic Log Levels
-   - Controlled by `lambda-console-logging` flag in LaunchDarkly
+   - Controlled by flag specified in LD_LOG_LEVEL_FLAG_KEY environment variable
    - Flag is evaluated on every log call to determine if that level should be logged
    - Log levels (increasing verbosity):
      * 0: FATAL (💀) - Unrecoverable errors
@@ -219,7 +222,7 @@ The service uses LaunchDarkly for both dynamic logging control and feature flag 
    });
    ```
 
-   The logger evaluates the `lambda-console-logging` flag before each log operation:
+   The logger evaluates the flag specified by LD_LOG_LEVEL_FLAG_KEY before each log operation:
    ```javascript
    async getCurrentLogLevel() {
      if (!this.ldClient) return LogLevel.ERROR;
