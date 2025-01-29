@@ -45,6 +45,12 @@ The service is built using several key components:
    - Implements retry mechanisms
    - Handles data persistence and caching
 
+5. **LaunchDarkly Integration** (`launchDarkly.js`)
+   - Manages feature flag evaluation with multi-context support
+   - Handles user and service context creation
+   - Controls dynamic log levels
+   - Ensures proper resource cleanup
+
 ## Setup
 
 ### Prerequisites
@@ -78,6 +84,7 @@ JWT_SECRET=                  # Secret for JWT verification
 LD_SDK_KEY=                  # LaunchDarkly SDK key
 LD_SDK_LOG_LEVEL=            # LaunchDarkly SDK log level (error, warn, info, debug)
 LD_LOG_LEVEL_FLAG_KEY=       # LaunchDarkly flag key for dynamic log level control
+NODE_ENV=                    # Environment for LaunchDarkly service context (development, staging, production)
 ```
 
 ### Installation
@@ -187,15 +194,38 @@ The service uses LaunchDarkly for both dynamic logging control and feature flag 
    const ldClient = LaunchDarkly.init(process.env.LD_SDK_KEY);
    await ldClient.waitForInitialization();
    
-   // Pass client to logger utility
-   await logger.initialize(ldClient, {
-     kind: 'service',
-     key: 'weather-app-websocket-lambda',
-     name: 'Weather App WebSocket Lambda'
-   }, {
+   // Create multi-context with both user and service contexts
+   const multiContext = {
+     kind: 'multi',
+     user: {
+       kind: 'user',
+       key: 'username_or_userid',
+       name: 'User Name',
+       userId: '123',
+       anonymous: false // true for unauthenticated users
+     },
+     service: {
+       kind: 'service',
+       key: 'weather-app-websocket-lambda',
+       name: 'Weather App WebSocket Lambda',
+       environment: process.env.NODE_ENV || 'development'
+     }
+   };
+   
+   // Pass client and multi-context to logger utility
+   await logger.initialize(ldClient, multiContext, {
      logLevelFlagKey: process.env.LD_LOG_LEVEL_FLAG_KEY
    });
    ```
+
+   The service uses LaunchDarkly's multi-context feature to evaluate flags based on both:
+   - User Context: Identifies the current user (or anonymous)
+   - Service Context: Identifies the service and its environment
+
+   This allows for targeting flags based on:
+   - Individual users or user segments
+   - Service environment (development, staging, production)
+   - Combinations of both (e.g., specific users in staging)
 
 #### Dynamic Log Levels
    - Controlled by flag specified in LD_LOG_LEVEL_FLAG_KEY environment variable
@@ -226,16 +256,21 @@ The service uses LaunchDarkly for both dynamic logging control and feature flag 
    ```javascript
    async getCurrentLogLevel() {
      if (!this.ldClient) return LogLevel.ERROR;
-     return await this.ldClient.variation(this.FLAG_KEY, this.context, LogLevel.ERROR);
+     return await this.ldClient.variation(this.FLAG_KEY, this.multiContext, LogLevel.ERROR);
    }
 
    async shouldLog(level) {
      const currentLevel = await this.getCurrentLogLevel();
+     // Always allow error logs regardless of level
+     if (level === LogLevel.ERROR) return true;
      return level <= currentLevel;
    }
    ```
 
-   This allows for real-time log level adjustments without redeploying the Lambda function.
+   This allows for real-time log level adjustments without redeploying the Lambda function. The log level can be targeted based on:
+   - User: Different log levels for specific users or user segments
+   - Environment: Different log levels in development vs production
+   - Both: e.g., DEBUG level for specific users in staging
 
 #### Resource Cleanup
    ```javascript
