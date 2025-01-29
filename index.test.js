@@ -1,9 +1,13 @@
-// Mock all dependencies before requiring any modules
-jest.mock('./config', () => ({
-  CONNECTIONS_TABLE: 'test-connections-table'
-}));
+const LogLevel = {
+  FATAL: 0,
+  ERROR: 1,
+  WARN: 2,
+  INFO: 3,
+  DEBUG: 4,
+  TRACE: 5
+};
 
-// Mock LaunchDarkly SDK first
+// Mock LaunchDarkly client
 const mockLDClient = {
   waitForInitialization: jest.fn().mockResolvedValue(),
   on: jest.fn(),
@@ -12,17 +16,7 @@ const mockLDClient = {
   flush: jest.fn().mockResolvedValue()
 };
 
-jest.mock('@launchdarkly/node-server-sdk', () => ({
-  init: jest.fn().mockReturnValue(mockLDClient),
-  basicLogger: jest.fn().mockReturnValue({
-    debug: jest.fn(),
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn()
-  })
-}));
-
-// Mock logger before requiring handler
+// Mock logger
 const mockLogger = {
   initialize: jest.fn().mockResolvedValue(),
   info: jest.fn(),
@@ -42,19 +36,106 @@ const mockLogger = {
   })
 };
 
-const LogLevel = {
-  FATAL: 0,
-  ERROR: 1,
-  WARN: 2,
-  INFO: 3,
-  DEBUG: 4,
-  TRACE: 5
-};
+// Mock all dependencies before requiring any modules
+jest.mock('./config', () => ({
+  CONNECTIONS_TABLE: 'test-connections-table'
+}));
 
 jest.mock('@bradbunce/launchdarkly-lambda-logger', () => ({
   logger: mockLogger,
   LogLevel
 }));
+
+jest.mock('@launchdarkly/node-server-sdk', () => ({
+  init: jest.fn().mockReturnValue(mockLDClient),
+  basicLogger: jest.fn().mockReturnValue({
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn()
+  })
+}));
+
+// Mock LaunchDarkly module functions
+const mockInitializeLDClient = jest.fn().mockImplementation(() => {
+  return LaunchDarkly.init(process.env.LD_SDK_KEY, {
+    logger: LaunchDarkly.basicLogger({
+      level: 'debug'
+    })
+  });
+});
+
+const mockInitializeLogger = jest.fn().mockImplementation(async (client, token, verifyToken) => {
+  let userContext;
+  if (token) {
+    try {
+      const decoded = verifyToken(token);
+      userContext = {
+        kind: 'user',
+        key: decoded.username || String(decoded.userId),
+        name: decoded.name,
+        userId: decoded.userId,
+        anonymous: false
+      };
+    } catch (error) {
+      userContext = {
+        kind: 'user',
+        key: 'anonymous',
+        anonymous: true
+      };
+    }
+  } else {
+    userContext = {
+      kind: 'user',
+      key: 'anonymous',
+      anonymous: true
+    };
+  }
+
+  const multiContext = {
+    kind: 'multi',
+    user: userContext,
+    service: {
+      kind: 'service',
+      key: 'weather-app-websocket-lambda',
+      name: 'Weather App WebSocket Lambda',
+      environment: 'test'
+    }
+  };
+
+  // Set up event listeners
+  client.on('update', () => {});
+  client.on('change', () => {});
+
+  // Initialize logger with context
+  await logger.initialize(client, multiContext, {
+    logLevelFlagKey: process.env.LD_LOG_LEVEL_FLAG_KEY
+  });
+
+  // Evaluate log level flag
+  await client.variation(process.env.LD_LOG_LEVEL_FLAG_KEY, multiContext, 'info');
+
+  return multiContext;
+});
+
+const mockCleanup = jest.fn().mockImplementation(async (client) => {
+  await client.flush();
+  await Promise.all([
+    logger.close(),
+    client.close()
+  ]);
+});
+
+jest.mock('./launchDarkly', () => ({
+  initializeLDClient: mockInitializeLDClient,
+  initializeLogger: mockInitializeLogger,
+  cleanup: mockCleanup
+}));
+
+// Now require the modules after all mocks are set up
+const { handler } = require('./index');
+const LaunchDarkly = require('@launchdarkly/node-server-sdk');
+const { logger } = require('@bradbunce/launchdarkly-lambda-logger');
 
 jest.mock('./websocket', () => ({
   storeConnection: jest.fn().mockResolvedValue(),
@@ -78,10 +159,6 @@ jest.mock('./dataProcessor', () => ({
   processWeatherData: jest.fn().mockResolvedValue([])
 }));
 
-// Now require the modules after all mocks are set up
-const { handler } = require('./index');
-const LaunchDarkly = require('@launchdarkly/node-server-sdk');
-const { logger } = require('@bradbunce/launchdarkly-lambda-logger');
 
 describe('WebSocket Lambda Handler', () => {
   const mockEvent = {

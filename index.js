@@ -7,8 +7,12 @@
  */
 
 const CONFIG = require('./config');
-const LaunchDarkly = require('@launchdarkly/node-server-sdk');
 const { logger } = require('@bradbunce/launchdarkly-lambda-logger');
+const {
+  initializeLDClient,
+  initializeLogger,
+  cleanup
+} = require('./launchDarkly');
 const {
   storeConnection,
   removeConnection,
@@ -31,108 +35,19 @@ exports.handler = async (event) => {
   const connectionId = event.requestContext.connectionId;
   let ldClient;
   try {
-    // Initialize LaunchDarkly client with debug logging
-    ldClient = LaunchDarkly.init(process.env.LD_SDK_KEY, {
-      logger: LaunchDarkly.basicLogger({
-        level: 'debug',
-        destination: (level, message) => {
-          console.debug(`[LaunchDarkly SDK ${level}] ${message}`);
-        }
-      })
-    });
-    
+    // Initialize LaunchDarkly client
+    ldClient = initializeLDClient();
     await ldClient.waitForInitialization();
+
+    // Initialize logger with token from event
+    const token = event.queryStringParameters?.token;
+    await initializeLogger(ldClient, token, verifyToken);
   } catch (error) {
     logger.error('LaunchDarkly initialization failed:', {
       error: error.message
     });
     throw error;
   }
-  
-  // Set up flag change listeners for debugging
-  ldClient.on('update', () => {
-    logger.debug('LaunchDarkly flag update received');
-  });
-
-  ldClient.on('change', (settings) => {
-    logger.debug('LaunchDarkly flag change detected:', { settings });
-  });
-
-  // Helper function to create user context from token
-  const createUserContext = (token) => {
-    if (!token) {
-      return {
-        kind: 'user',
-        key: 'anonymous',
-        anonymous: true
-      };
-    }
-
-    try {
-      const decoded = verifyToken(token);
-      return {
-        kind: 'user',
-        key: decoded.username || String(decoded.userId),
-        name: decoded.name,
-        userId: decoded.userId,
-        anonymous: false
-      };
-    } catch (error) {
-      return {
-        kind: 'user',
-        key: 'anonymous',
-        anonymous: true
-      };
-    }
-  };
-
-  // Helper function to get token based on route
-  const getTokenFromEvent = (event) => {
-    switch (event.requestContext.routeKey) {
-      case '$connect':
-        return event.queryStringParameters?.token;
-      case 'getWeather':
-      case 'locationUpdate':
-      case '$default':
-        try {
-          const messageData = JSON.parse(event.body || '{}');
-          return messageData.token;
-        } catch {
-          return null;
-        }
-      default:
-        return null;
-    }
-  };
-
-  // Create service context
-  const serviceContext = {
-    kind: 'service',
-    key: 'weather-app-websocket-lambda',
-    name: 'Weather App WebSocket Lambda',
-    environment: process.env.NODE_ENV || 'development'
-  };
-
-  // Create multi-context using token from appropriate source
-  const token = getTokenFromEvent(event);
-  const multiContext = {
-    kind: 'multi',
-    user: createUserContext(token),
-    service: serviceContext
-  };
-
-  // Initialize logger with our LaunchDarkly client and flag key
-  await logger.initialize(ldClient, multiContext, {
-    logLevelFlagKey: process.env.LD_LOG_LEVEL_FLAG_KEY
-  });
-
-  // Explicitly check current log level for debugging
-  const currentLogLevel = await ldClient.variation(process.env.LD_LOG_LEVEL_FLAG_KEY, multiContext, 'info');
-  logger.debug('Current log level configuration:', { 
-    level: currentLogLevel, 
-    context: multiContext,
-    flagKey: process.env.LD_LOG_LEVEL_FLAG_KEY
-  });
 
   const startTime = Date.now();
 
@@ -489,12 +404,7 @@ exports.handler = async (event) => {
         totalTime: Date.now() - startTime 
       });
     
-      // Flush events before closing
-      await ldClient.flush();
-      
-      await Promise.all([
-        logger.close(),
-        ldClient.close()
-      ]);
+      // Clean up LaunchDarkly resources
+      await cleanup(ldClient);
     }
   };
