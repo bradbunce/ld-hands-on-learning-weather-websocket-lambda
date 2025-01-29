@@ -60,7 +60,11 @@ jest.mock('./websocket', () => ({
   storeConnection: jest.fn().mockResolvedValue(),
   removeConnection: jest.fn().mockResolvedValue(),
   sendMessageToClient: jest.fn().mockResolvedValue(),
-  verifyToken: jest.fn().mockReturnValue({ userId: '123', username: 'testuser' }),
+  verifyToken: jest.fn().mockReturnValue({ 
+    userId: '123', 
+    username: 'testuser',
+    name: 'Test User'
+  }),
   updateConnectionLocations: jest.fn().mockResolvedValue(),
   updateConnectionTTL: jest.fn().mockResolvedValue(),
   cleanupUserConnections: jest.fn().mockResolvedValue()
@@ -264,6 +268,24 @@ describe('WebSocket Lambda Handler', () => {
     it('should respect different log levels based on flag value', async () => {
       // First test with DEBUG level
       mockLDClient.variation.mockImplementation((flagKey, context, defaultValue) => {
+        // Verify multi-context structure
+        expect(context).toEqual({
+          kind: 'multi',
+          user: {
+            kind: 'user',
+            key: 'testuser',
+            name: 'Test User',
+            userId: '123',
+            anonymous: false
+          },
+          service: {
+            kind: 'service',
+            key: 'weather-app-websocket-lambda',
+            name: 'Weather App WebSocket Lambda',
+            environment: 'test'
+          }
+        });
+
         if (flagKey === process.env.LD_LOG_LEVEL_FLAG_KEY) {
           return Promise.resolve(LogLevel.DEBUG);
         }
@@ -278,6 +300,22 @@ describe('WebSocket Lambda Handler', () => {
       // Then test with ERROR level only
       jest.clearAllMocks();
       mockLDClient.variation.mockImplementation((flagKey, context, defaultValue) => {
+        // Verify multi-context structure for anonymous user
+        expect(context).toEqual({
+          kind: 'multi',
+          user: {
+            kind: 'user',
+            key: 'anonymous',
+            anonymous: true
+          },
+          service: {
+            kind: 'service',
+            key: 'weather-app-websocket-lambda',
+            name: 'Weather App WebSocket Lambda',
+            environment: 'test'
+          }
+        });
+
         if (flagKey === process.env.LD_LOG_LEVEL_FLAG_KEY) {
           return Promise.resolve(LogLevel.ERROR);
         }
