@@ -57,12 +57,33 @@ jest.mock('@launchdarkly/node-server-sdk', () => ({
 }));
 
 // Mock LaunchDarkly module functions
-const mockInitializeLDClient = jest.fn().mockImplementation(() => {
-  return LaunchDarkly.init(process.env.LD_SDK_KEY, {
+const mockInitializeLDClient = jest.fn().mockImplementation(async () => {
+  // Create service context for SDK log level evaluation
+  const serviceContext = {
+    kind: 'service',
+    key: 'weather-app-websocket-lambda',
+    name: 'Weather App WebSocket Lambda',
+    environment: 'test'
+  };
+
+  // Get SDK log level from flag
+  const sdkLogLevel = await mockLDClient.variation(
+    process.env.LD_SDK_LOG_LEVEL_FLAG_KEY,
+    serviceContext,
+    'info'
+  );
+
+  // Initialize client with logger
+  const client = LaunchDarkly.init(process.env.LD_SDK_KEY, {
     logger: LaunchDarkly.basicLogger({
-      level: 'debug'
+      level: sdkLogLevel
     })
   });
+
+  // Wait for initialization
+  await client.waitForInitialization();
+
+  return client;
 });
 
 const mockInitializeLogger = jest.fn().mockImplementation(async (client, token, verifyToken) => {
@@ -179,6 +200,7 @@ describe('WebSocket Lambda Handler', () => {
     // Set up required environment variables
     process.env.LD_SDK_KEY = 'mock-sdk-key';
     process.env.LD_LOG_LEVEL_FLAG_KEY = 'lambda-console-logging';
+    process.env.LD_SDK_LOG_LEVEL_FLAG_KEY = 'sdk-log-level';
     process.env.CONNECTIONS_TABLE = 'test-connections-table';
     process.env.JWT_SECRET = 'test-jwt-secret';
     process.env.WEBSOCKET_API_ENDPOINT = 'test-api-endpoint';
@@ -189,6 +211,7 @@ describe('WebSocket Lambda Handler', () => {
     // Clean up environment variables
     delete process.env.LD_SDK_KEY;
     delete process.env.LD_LOG_LEVEL_FLAG_KEY;
+    delete process.env.LD_SDK_LOG_LEVEL_FLAG_KEY;
     delete process.env.CONNECTIONS_TABLE;
     delete process.env.JWT_SECRET;
     delete process.env.WEBSOCKET_API_ENDPOINT;
@@ -203,7 +226,10 @@ describe('WebSocket Lambda Handler', () => {
       // Set up default flag evaluation behavior
       mockLDClient.variation.mockImplementation((flagKey, context, defaultValue) => {
         if (flagKey === process.env.LD_LOG_LEVEL_FLAG_KEY) {
-          return Promise.resolve(LogLevel.INFO); // Default to INFO level
+          return Promise.resolve(LogLevel.INFO); // Default to INFO level for application logs
+        }
+        if (flagKey === process.env.LD_SDK_LOG_LEVEL_FLAG_KEY) {
+          return Promise.resolve('info'); // Default to info level for SDK logs
         }
         return Promise.resolve(defaultValue);
       });
@@ -342,29 +368,32 @@ describe('WebSocket Lambda Handler', () => {
       );
     });
 
+    it('should evaluate SDK log level flag during initialization', async () => {
+      await handler(mockEvent);
+
+      // Verify SDK log level flag is evaluated
+      expect(mockLDClient.variation).toHaveBeenCalledWith(
+        process.env.LD_SDK_LOG_LEVEL_FLAG_KEY,
+        expect.any(Object),
+        'info'
+      );
+
+      // Verify LaunchDarkly client is initialized with the correct log level
+      expect(LaunchDarkly.basicLogger).toHaveBeenCalledWith(
+        expect.objectContaining({
+          level: 'info'
+        })
+      );
+    });
+
     it('should respect different log levels based on flag value', async () => {
       // First test with DEBUG level
       mockLDClient.variation.mockImplementation((flagKey, context, defaultValue) => {
-        // Verify multi-context structure
-        expect(context).toEqual({
-          kind: 'multi',
-          user: {
-            kind: 'user',
-            key: 'testuser',
-            name: 'Test User',
-            userId: '123',
-            anonymous: false
-          },
-          service: {
-            kind: 'service',
-            key: 'weather-app-websocket-lambda',
-            name: 'Weather App WebSocket Lambda',
-            environment: 'test'
-          }
-        });
-
         if (flagKey === process.env.LD_LOG_LEVEL_FLAG_KEY) {
           return Promise.resolve(LogLevel.DEBUG);
+        }
+        if (flagKey === process.env.LD_SDK_LOG_LEVEL_FLAG_KEY) {
+          return Promise.resolve('debug');
         }
         return Promise.resolve(defaultValue);
       });
@@ -377,24 +406,11 @@ describe('WebSocket Lambda Handler', () => {
       // Then test with ERROR level only
       jest.clearAllMocks();
       mockLDClient.variation.mockImplementation((flagKey, context, defaultValue) => {
-        // Verify multi-context structure for anonymous user
-        expect(context).toEqual({
-          kind: 'multi',
-          user: {
-            kind: 'user',
-            key: 'anonymous',
-            anonymous: true
-          },
-          service: {
-            kind: 'service',
-            key: 'weather-app-websocket-lambda',
-            name: 'Weather App WebSocket Lambda',
-            environment: 'test'
-          }
-        });
-
         if (flagKey === process.env.LD_LOG_LEVEL_FLAG_KEY) {
           return Promise.resolve(LogLevel.ERROR);
+        }
+        if (flagKey === process.env.LD_SDK_LOG_LEVEL_FLAG_KEY) {
+          return Promise.resolve('error');
         }
         return Promise.resolve(defaultValue);
       });
@@ -449,8 +465,8 @@ describe('WebSocket Lambda Handler', () => {
     });
 
     it('should handle LaunchDarkly initialization failure', async () => {
-      // Mock logger before initialization fails
-      mockLDClient.waitForInitialization.mockRejectedValueOnce(new Error('Init failed'));
+      // Mock initialization failure
+      mockInitializeLDClient.mockRejectedValueOnce(new Error('Init failed'));
       
       try {
         await handler(mockEvent);

@@ -36,8 +36,7 @@ exports.handler = async (event) => {
   let ldClient;
   try {
     // Initialize LaunchDarkly client
-    ldClient = initializeLDClient();
-    await ldClient.waitForInitialization();
+    ldClient = await initializeLDClient();
 
     // Initialize logger with token from event
     const token = event.queryStringParameters?.token;

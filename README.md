@@ -83,6 +83,7 @@ JWT_SECRET=                  # Secret for JWT verification
 # LaunchDarkly Configuration
 LD_SDK_KEY=                  # LaunchDarkly SDK key
 LD_SDK_LOG_LEVEL=            # LaunchDarkly SDK log level (error, warn, info, debug)
+LD_SDK_LOG_LEVEL_FLAG_KEY=   # Flag key for controlling SDK log level
 LD_LOG_LEVEL_FLAG_KEY=       # LaunchDarkly flag key for dynamic log level control
 NODE_ENV=                    # Environment for LaunchDarkly service context (development, staging, production)
 ```
@@ -228,8 +229,9 @@ The service uses LaunchDarkly for both dynamic logging control and feature flag 
    - Combinations of both (e.g., specific users in staging)
 
 #### Dynamic Log Levels
-   - Controlled by flag specified in LD_LOG_LEVEL_FLAG_KEY environment variable
-   - Flag is evaluated on every log call to determine if that level should be logged
+   - Application logging controlled by flag specified in LD_LOG_LEVEL_FLAG_KEY environment variable
+   - SDK logging controlled by flag specified in LD_SDK_LOG_LEVEL_FLAG_KEY environment variable
+   - Flags are evaluated on every log call to determine if that level should be logged
    - Log levels (increasing verbosity):
      * 0: FATAL (💀) - Unrecoverable errors
      * 1: ERROR (🔴) - Severe but non-fatal errors
