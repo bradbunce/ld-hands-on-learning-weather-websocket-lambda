@@ -113,24 +113,24 @@ exports.handler = async (event) => {
     environment: process.env.NODE_ENV || 'development'
   };
 
-  // Create contexts using token from appropriate source
+  // Create multi-context using token from appropriate source
   const token = getTokenFromEvent(event);
-  const context = {
+  const multiContext = {
     kind: 'multi',
     user: createUserContext(token),
     service: serviceContext
   };
 
   // Initialize logger with our LaunchDarkly client and flag key
-  await logger.initialize(ldClient, context, {
+  await logger.initialize(ldClient, multiContext, {
     logLevelFlagKey: process.env.LD_LOG_LEVEL_FLAG_KEY
   });
 
   // Explicitly check current log level for debugging
-  const currentLogLevel = await ldClient.variation(process.env.LD_LOG_LEVEL_FLAG_KEY, context, 'info');
+  const currentLogLevel = await ldClient.variation(process.env.LD_LOG_LEVEL_FLAG_KEY, multiContext, 'info');
   logger.debug('Current log level configuration:', { 
     level: currentLogLevel, 
-    context,
+    context: multiContext,
     flagKey: process.env.LD_LOG_LEVEL_FLAG_KEY
   });
 
