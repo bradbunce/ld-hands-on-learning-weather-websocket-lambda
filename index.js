@@ -58,10 +58,67 @@ exports.handler = async (event) => {
     logger.debug('LaunchDarkly flag change detected:', { settings });
   });
 
-  const context = {
+  // Helper function to create user context from token
+  const createUserContext = (token) => {
+    if (!token) {
+      return {
+        kind: 'user',
+        key: 'anonymous',
+        anonymous: true
+      };
+    }
+
+    try {
+      const decoded = verifyToken(token);
+      return {
+        kind: 'user',
+        key: decoded.username || String(decoded.userId),
+        name: decoded.name,
+        userId: decoded.userId,
+        anonymous: false
+      };
+    } catch (error) {
+      return {
+        kind: 'user',
+        key: 'anonymous',
+        anonymous: true
+      };
+    }
+  };
+
+  // Helper function to get token based on route
+  const getTokenFromEvent = (event) => {
+    switch (event.requestContext.routeKey) {
+      case '$connect':
+        return event.queryStringParameters?.token;
+      case 'getWeather':
+      case 'locationUpdate':
+      case '$default':
+        try {
+          const messageData = JSON.parse(event.body || '{}');
+          return messageData.token;
+        } catch {
+          return null;
+        }
+      default:
+        return null;
+    }
+  };
+
+  // Create service context
+  const serviceContext = {
     kind: 'service',
     key: 'weather-app-websocket-lambda',
-    name: 'Weather App WebSocket Lambda'
+    name: 'Weather App WebSocket Lambda',
+    environment: process.env.NODE_ENV || 'development'
+  };
+
+  // Create contexts using token from appropriate source
+  const token = getTokenFromEvent(event);
+  const context = {
+    kind: 'multi',
+    user: createUserContext(token),
+    service: serviceContext
   };
 
   // Initialize logger with our LaunchDarkly client and flag key

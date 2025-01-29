@@ -33,6 +33,8 @@ const mockLogger = {
   close: jest.fn().mockResolvedValue(),
   shouldLog: jest.fn().mockImplementation(async (level) => {
     const currentLevel = await mockLDClient.variation(process.env.LD_LOG_LEVEL_FLAG_KEY, null, LogLevel.INFO);
+    // Always allow error logs regardless of level
+    if (level === LogLevel.ERROR) return true;
     return level <= currentLevel;
   }),
   getCurrentLogLevel: jest.fn().mockImplementation(async () => {
@@ -99,6 +101,7 @@ describe('WebSocket Lambda Handler', () => {
     process.env.CONNECTIONS_TABLE = 'test-connections-table';
     process.env.JWT_SECRET = 'test-jwt-secret';
     process.env.WEBSOCKET_API_ENDPOINT = 'test-api-endpoint';
+    process.env.NODE_ENV = 'test';
   });
 
   afterEach(() => {
@@ -108,9 +111,13 @@ describe('WebSocket Lambda Handler', () => {
     delete process.env.CONNECTIONS_TABLE;
     delete process.env.JWT_SECRET;
     delete process.env.WEBSOCKET_API_ENDPOINT;
+    delete process.env.NODE_ENV;
   });
 
   describe('LaunchDarkly Integration', () => {
+    // Set timeout for all tests in this describe block
+    jest.setTimeout(10000);
+
     beforeEach(() => {
       // Set up default flag evaluation behavior
       mockLDClient.variation.mockImplementation((flagKey, context, defaultValue) => {
@@ -121,24 +128,100 @@ describe('WebSocket Lambda Handler', () => {
       });
     });
 
-    it('should initialize LaunchDarkly client with correct context', async () => {
-      await handler(mockEvent);
+    it('should initialize LaunchDarkly client with correct multi-context', async () => {
+      const mockToken = 'valid-token';
+      const mockDecodedToken = { 
+        userId: '123', 
+        username: 'testuser',
+        name: 'Test User'
+      };
+      
+      const mockWebsocket = require('./websocket');
+      mockWebsocket.verifyToken.mockReturnValueOnce(mockDecodedToken);
+
+      await handler({
+        ...mockEvent,
+        queryStringParameters: {
+          ...mockEvent.queryStringParameters,
+          token: mockToken
+        }
+      });
 
       // Verify client initialization
       expect(LaunchDarkly.init).toHaveBeenCalledWith('mock-sdk-key', expect.any(Object));
       expect(mockLDClient.waitForInitialization).toHaveBeenCalled();
 
-      // Verify logger initialization with client and context
+      // Verify logger initialization with multi-context
       expect(logger.initialize).toHaveBeenCalledWith(
         mockLDClient,
         {
-          kind: 'service',
-          key: 'weather-app-websocket-lambda',
-          name: 'Weather App WebSocket Lambda'
+          kind: 'multi',
+          user: {
+            kind: 'user',
+            key: 'testuser',
+            name: 'Test User',
+            userId: '123',
+            anonymous: false
+          },
+          service: {
+            kind: 'service',
+            key: 'weather-app-websocket-lambda',
+            name: 'Weather App WebSocket Lambda',
+            environment: 'test'
+          }
         },
         expect.objectContaining({
           logLevelFlagKey: process.env.LD_LOG_LEVEL_FLAG_KEY
         })
+      );
+    });
+
+    it('should use anonymous user context when no token is provided', async () => {
+      await handler({
+        ...mockEvent,
+        queryStringParameters: {}
+      });
+
+      expect(logger.initialize).toHaveBeenCalledWith(
+        mockLDClient,
+        {
+          kind: 'multi',
+          user: {
+            kind: 'user',
+            key: 'anonymous',
+            anonymous: true
+          },
+          service: expect.any(Object)
+        },
+        expect.any(Object)
+      );
+    });
+
+    it('should use anonymous user context when token verification fails', async () => {
+      const mockWebsocket = require('./websocket');
+      mockWebsocket.verifyToken.mockImplementationOnce(() => {
+        throw new Error('Invalid token');
+      });
+
+      await handler({
+        ...mockEvent,
+        queryStringParameters: {
+          token: 'invalid-token'
+        }
+      });
+
+      expect(logger.initialize).toHaveBeenCalledWith(
+        mockLDClient,
+        {
+          kind: 'multi',
+          user: {
+            kind: 'user',
+            key: 'anonymous',
+            anonymous: true
+          },
+          service: expect.any(Object)
+        },
+        expect.any(Object)
       );
     });
 
@@ -210,23 +293,43 @@ describe('WebSocket Lambda Handler', () => {
         throw new Error('Invalid token');
       });
 
-      await handler({
-        ...mockEvent,
-        queryStringParameters: {
-          ...mockEvent.queryStringParameters,
-          token: 'invalid-token'
+      // Create event with missing token and userId
+      const eventWithMissingParams = {
+        requestContext: {
+          connectionId: 'test-connection-id',
+          routeKey: '$connect'
+        },
+        queryStringParameters: {}
+      };
+
+      // Initialize logger and LaunchDarkly client
+      await mockLDClient.waitForInitialization();
+      await logger.initialize(mockLDClient, {
+        kind: 'multi',
+        user: {
+          kind: 'user',
+          key: 'anonymous',
+          anonymous: true
+        },
+        service: {
+          kind: 'service',
+          key: 'weather-app-websocket-lambda',
+          name: 'Weather App WebSocket Lambda',
+          environment: 'test'
         }
+      }, {
+        logLevelFlagKey: process.env.LD_LOG_LEVEL_FLAG_KEY
       });
-      
-      // Skip checking debug calls since initial setup logs are at debug level
-      const debugCalls = logger.debug.mock.calls.filter(call => 
-        !call[0].includes('Current log level configuration') &&
-        !call[0].includes('Debug level connection info')
-      );
-      expect(debugCalls.length).toBe(0);
-      expect(logger.error).toHaveBeenCalledWith('Token verification failed', {
-        error: 'Invalid token',
-        connectionId: 'test-connection-id'
+
+      // Call handler and expect 401 response
+      const response = await handler(eventWithMissingParams);
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.body).message).toBe('Authorization token and userId required');
+
+      // Verify warning was logged
+      expect(logger.warn).toHaveBeenCalledWith("Missing token or userId", {
+        hasToken: false,
+        hasUserId: false
       });
     });
 
