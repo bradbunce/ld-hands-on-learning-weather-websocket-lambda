@@ -77,8 +77,24 @@ const initializeLDClient = async () => {
     logger.debug('LaunchDarkly flag update received');
   });
 
-  client.on('change', (settings) => {
-    logger.debug('LaunchDarkly flag change detected:', { settings });
+  // Monitor both log level flags for changes
+  client.on('change', async (settings) => {
+    if (settings.key === process.env.LD_LOG_LEVEL_FLAG_KEY || 
+        settings.key === process.env.LD_SDK_LOG_LEVEL_FLAG_KEY) {
+      const [appLogLevel, sdkLogLevel] = await Promise.all([
+        client.variation(process.env.LD_LOG_LEVEL_FLAG_KEY, createServiceContext(), 'info'),
+        client.variation(process.env.LD_SDK_LOG_LEVEL_FLAG_KEY, createServiceContext(), 'info')
+      ]);
+      logger.debug('Log level configuration changed:', {
+        appLevel: appLogLevel,
+        sdkLevel: sdkLogLevel,
+        changedFlag: settings.key,
+        oldValue: settings.oldValue,
+        newValue: settings.newValue
+      });
+    } else {
+      logger.debug('LaunchDarkly flag change detected:', { settings });
+    }
   });
 
   return client;
