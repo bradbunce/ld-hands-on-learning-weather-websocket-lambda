@@ -45,10 +45,27 @@ const createMultiContext = (token, verifyToken) => ({
 });
 
 // Initialize LaunchDarkly client
-const initializeLDClient = () => {
+const initializeLDClient = async () => {
+  // Create a temporary client to evaluate the SDK log level flag
+  const tempClient = LaunchDarkly.init(process.env.LD_SDK_KEY, {
+    logger: LaunchDarkly.basicLogger({ level: 'error' }) // Minimal logging until we get the flag value
+  });
+  await tempClient.waitForInitialization();
+
+  // Get SDK log level from flag using service context
+  const sdkLogLevel = await tempClient.variation(
+    process.env.LD_SDK_LOG_LEVEL_FLAG_KEY,
+    createServiceContext(),
+    'info' // Default to info if flag is not set
+  );
+
+  // Clean up temporary client
+  await tempClient.close();
+
+  // Create the real client with the configured log level
   const client = LaunchDarkly.init(process.env.LD_SDK_KEY, {
     logger: LaunchDarkly.basicLogger({
-      level: 'debug',
+      level: sdkLogLevel,
       destination: (level, message) => {
         console.debug(`[LaunchDarkly SDK ${level}] ${message}`);
       }
@@ -75,15 +92,17 @@ const initializeLogger = async (ldClient, token, verifyToken) => {
   });
 
   // Log current configuration for debugging
-  const currentLogLevel = await ldClient.variation(
-    process.env.LD_LOG_LEVEL_FLAG_KEY,
-    multiContext,
-    'info'
-  );
+  const [appLogLevel, sdkLogLevel] = await Promise.all([
+    ldClient.variation(process.env.LD_LOG_LEVEL_FLAG_KEY, multiContext, 'info'),
+    ldClient.variation(process.env.LD_SDK_LOG_LEVEL_FLAG_KEY, multiContext, 'info')
+  ]);
+
   logger.debug('Current log level configuration:', {
-    level: currentLogLevel,
+    appLevel: appLogLevel,
+    sdkLevel: sdkLogLevel,
     context: multiContext,
-    flagKey: process.env.LD_LOG_LEVEL_FLAG_KEY
+    appFlagKey: process.env.LD_LOG_LEVEL_FLAG_KEY,
+    sdkFlagKey: process.env.LD_SDK_LOG_LEVEL_FLAG_KEY
   });
 
   return multiContext;
