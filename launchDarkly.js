@@ -6,7 +6,7 @@ const createServiceContext = () => ({
   kind: 'service',
   key: 'weather-app-websocket-lambda',
   name: 'Weather App WebSocket Lambda',
-  environment: process.env.NODE_ENV || 'development'
+  environment: process.env.NODE_ENV
 });
 
 // Create user context from token
@@ -50,7 +50,7 @@ const initializeLDClient = async () => {
   const tempClient = LaunchDarkly.init(process.env.LD_SDK_KEY, {
     logger: LaunchDarkly.basicLogger({ level: 'error' })
   });
-  await tempClient.waitForInitialization({timeoutSeconds: 2});
+  await tempClient.waitForInitialization({timeout: 2});
 
   // Get SDK log level from flag using service context
   const sdkLogLevel = await tempClient.variation(
