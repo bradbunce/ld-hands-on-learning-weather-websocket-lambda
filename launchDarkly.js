@@ -48,9 +48,9 @@ const createMultiContext = (token, verifyToken) => ({
 const initializeLDClient = async () => {
   // Create a temporary client to evaluate the SDK log level flag
   const tempClient = LaunchDarkly.init(process.env.LD_SDK_KEY, {
-    logger: LaunchDarkly.basicLogger({ level: 'error' }) // Minimal logging until we get the flag value
+    logger: LaunchDarkly.basicLogger({ level: 'error' })
   });
-  await tempClient.waitForInitialization();
+  await tempClient.waitForInitialization({timeoutSeconds: 2});
 
   // Get SDK log level from flag using service context
   const sdkLogLevel = await tempClient.variation(

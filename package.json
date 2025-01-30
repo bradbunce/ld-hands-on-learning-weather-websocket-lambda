@@ -1,6 +1,6 @@
 {
   "name": "brad-weather-app-weather-websocket",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "description": "WebSocket Lambda for weather updates",
   "main": "index.js",
   "engines": {
